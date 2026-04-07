@@ -17,8 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-#from app.routers.dashboard_ws import broadcast_checkin_created, broadcast_visit_step_updated
-#from app.services.notification_service import trigger_bot_notification
+from app.routers.dashboard_ws import broadcast_checkin_created, broadcast_visit_step_updated
+from app.services.notification_service import trigger_bot_notification
 from app.models.models import (
     ClinicalArea,
     Patient,
