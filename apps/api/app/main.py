@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.routers import patients, visits, areas, visit_steps, notifications, dashboard, admin, dashboard_ws
+from app.routers import visits
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,14 +31,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(patients.router,      prefix="/api/v1/patients",      tags=["Patients"])
+#app.include_router(patients.router,      prefix="/api/v1/patients",      tags=["Patients"])
 app.include_router(visits.router,        prefix="/api/v1/visits",        tags=["Visits"])
-app.include_router(areas.router,         prefix="/api/v1/areas",         tags=["Areas"])
-app.include_router(visit_steps.router,   prefix="/api/v1/visit-steps",   tags=["Visit Steps"])
-app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
-app.include_router(dashboard.router,     prefix="/api/v1/dashboard",     tags=["Dashboard"])
-app.include_router(admin.router,         prefix="/api/v1/admin",         tags=["Admin"])
-app.include_router(dashboard_ws.router,  prefix="/ws/dashboard",         tags=["Dashboard WebSocket"])
+#app.include_router(areas.router,         prefix="/api/v1/areas",         tags=["Areas"])
+#app.include_router(visit_steps.router,   prefix="/api/v1/visit-steps",   tags=["Visit Steps"])
+#app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+#app.include_router(dashboard.router,     prefix="/api/v1/dashboard",     tags=["Dashboard"])
+#app.include_router(admin.router,         prefix="/api/v1/admin",         tags=["Admin"])
+#app.include_router(dashboard_ws.router,  prefix="/ws/dashboard",         tags=["Dashboard WebSocket"])
 
 
 @app.get("/health", tags=["System"])
