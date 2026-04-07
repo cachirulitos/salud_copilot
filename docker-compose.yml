@@ -1,0 +1,133 @@
+# ─────────────────────────────────────────────────────────────────────────
+# SaludCopilot — Entorno de desarrollo local
+#
+# USO:
+#   docker compose up --build     → levanta TODO (DB, Redis, API, Bot, Dashboard)
+#   docker compose up -d          → en background
+#   docker compose down -v        → apaga y borra datos (reset total)
+#
+# Servicios (todos con hot reload):
+#   - postgres    → :5433
+#   - redis       → :6379
+#   - api         → uvicorn --reload  en :8000
+#   - bot         → uvicorn --reload  en :8001
+#   - dashboard   → bun dev           en :3000
+#
+# Lo que corre local (fuera de Docker):
+#   - cv        → requiere acceso a webcam, no puede correr en contenedor
+# ─────────────────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: saludcopilot_postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db_init.sql:/docker-entrypoint-initdb.d/init.sql:Z
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: saludcopilot_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: saludcopilot_api
+    restart: unless-stopped
+    user: root
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379/0
+      BOT_BASE_URL: http://bot:8001
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app:z
+      - ./packages:/packages:z
+      - ./ml:/ml:z
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  bot:
+    build:
+      context: .
+      dockerfile: apps/bot/Dockerfile.dev
+    container_name: saludcopilot_bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      API_BASE_URL: http://api:8000
+      WATCHFILES_FORCE_POLLING: "true"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./apps/bot:/app:z
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      dockerfile: Dockerfile.dev
+    container_name: saludcopilot_dashboard
+    restart: unless-stopped
+    env_file: .env
+    platform: linux/amd64
+    environment:
+      # Force file-system polling so Next.js HMR works inside Docker
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      # Point dashboard at the API container (not localhost)
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WA_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount full dashboard dir for hot reload
+      - ./apps/dashboard:/app:Z
+      # Prevent host node_modules from overriding container's
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - api
+    stdin_open: true
+    tty: true
+    command: bun run dev
+
+volumes:
+  postgres_data:
