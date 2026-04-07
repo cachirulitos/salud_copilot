@@ -21,7 +21,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: saludcopilot_postgres
+    container_name: saludcopilot_postgres_hackathon
     restart: unless-stopped
     env_file: .env
     environment:
@@ -41,7 +41,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: saludcopilot_redis
+    container_name: saludcopilot_redis_hackathon
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -55,14 +55,14 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile.dev
-    container_name: saludcopilot_api
+    container_name: saludcopilot_api_hackathon
     restart: unless-stopped
     user: root
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
-      BOT_BASE_URL: http://bot:8001
+      BOT_BASE_URL: http://localhost:8001
       WATCHFILES_FORCE_POLLING: "true"
     ports:
       - "8000:8000"
@@ -77,33 +77,33 @@ services:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  bot:
-    build:
-      context: .
-      dockerfile: apps/bot/Dockerfile.dev
-    container_name: saludcopilot_bot
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379/0
-      API_BASE_URL: http://api:8000
-      WATCHFILES_FORCE_POLLING: "true"
-    ports:
-      - "8001:8001"
-    volumes:
-      - ./apps/bot:/app:z
-    depends_on:
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_started
-    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+  #bot:
+  #  build:
+  #    context: .
+  #    dockerfile: apps/bot/Dockerfile.dev
+  #  container_name: saludcopilot_bot
+  #  restart: unless-stopped
+  #  env_file: .env
+  #  environment:
+  #    REDIS_URL: redis://redis:6379/0
+  #    API_BASE_URL: http://api:8000
+  #    WATCHFILES_FORCE_POLLING: "true"
+  #  ports:
+  #    - "8001:8001"
+  #  volumes:
+  #    - ./apps/bot:/app:z
+  #  depends_on:
+  #    redis:
+  #      condition: service_healthy
+  #    api:
+  #      condition: service_started
+  #  command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 
   dashboard:
     build:
       context: ./apps/dashboard
       dockerfile: Dockerfile.dev
-    container_name: saludcopilot_dashboard
+    container_name: saludcopilot_dashboard_hackathon
     restart: unless-stopped
     env_file: .env
     platform: linux/amd64
