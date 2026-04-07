@@ -1,0 +1,11 @@
+FROM oven/bun:latest
+WORKDIR /app
+
+# Install dependencies — sin --frozen-lockfile porque la versión de bun
+# del contenedor puede diferir de la local, lo cual rompe la validación.
+# En dev esto es aceptable; CI/prod usaría una imagen fijada a la misma versión.
+COPY package.json bun.lockb ./
+RUN bun install
+
+# No COPY . .  — docker-compose monta el código como volumen para hot reload
+EXPOSE 3000
