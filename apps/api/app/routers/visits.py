@@ -158,7 +158,10 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
        
         # ── Weighted Queue (Media Ponderada) ──
         # 70% official virtual queue (Redis) + 30% physical people detected by CV
-        effective_queue = int(round((queue_length * 0.7) + (people_in_area * 0.3)))
+        if people_in_area >= 4:
+            effective_queue = int(round((queue_length * 0.95) + (people_in_area * 0.05)))
+        else:
+            effective_queue = int(round((queue_length * 0.75) + (people_in_area * 0.25)))
         print(f"Effective queue: {effective_queue}", flush=True)
         
         predictor = get_predictor()
