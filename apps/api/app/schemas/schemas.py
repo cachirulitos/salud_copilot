@@ -229,6 +229,7 @@ class DoctorPatientResponse(BaseModel):
     step_order: int
     total_steps: int
     estimated_wait_minutes: Optional[int]
+    expected_consultation_minutes: Optional[int]
     elapsed_minutes: Optional[int]
 
 

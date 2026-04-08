@@ -58,14 +58,21 @@ export default function NotificationsPanel({
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-content-primary mb-0.5">
-                  Cambio de estudio recomendado
+                <p className={`text-xs font-semibold mb-0.5 ${n.visit_id === "alert" ? "text-brand-green" : "text-content-primary"}`}>
+                  {n.visit_id === "alert" ? "Recordatorio de tiempo" : "Cambio de estudio recomendado"}
                 </p>
-                <p className="text-xs text-content-secondary leading-relaxed">
-                  <span className="font-medium text-content-primary">{n.old_area}</span>
-                  {" → "}
-                  <span className="text-brand-green font-medium">{n.new_area}</span>
-                </p>
+                {n.visit_id === "alert" ? (
+                  <p className="text-xs text-content-secondary leading-relaxed">
+                    <span className="font-medium text-content-primary">{n.old_area}</span>
+                    <span className="text-brand-green font-medium ml-1">Hola doc, el tiempo de esta consulta se ha cumplido tranquilamente.</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-content-secondary leading-relaxed">
+                    <span className="font-medium text-content-primary">{n.old_area}</span>
+                    {" → "}
+                    <span className="text-brand-green font-medium">{n.new_area}</span>
+                  </p>
+                )}
                 {n.reason && (
                   <p className="text-xs text-content-secondary mt-0.5 italic">
                     "{n.reason}"

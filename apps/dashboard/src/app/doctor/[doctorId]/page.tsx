@@ -129,6 +129,19 @@ export default function DoctorDashboardPage({
             },
             ...prev,
           ]);
+        } else if (msg.event === "doctor_overtime_alert") {
+          const d = msg.data;
+          setNotifications((prev) => [
+            {
+              id: crypto.randomUUID(),
+              visit_id: "alert",
+              old_area: d.area_name,
+              new_area: "Advertencia",
+              reason: d.message,
+              received_at: new Date().toISOString(),
+            },
+            ...prev,
+          ]);
         }
       } catch {
         // ignore parse errors
@@ -137,6 +150,35 @@ export default function DoctorDashboardPage({
 
     return () => ws.close();
   }, []);
+
+  // UseEffect to trigger alert when a patient passes the regular estimated time
+  const [hasTriggeredOvertime, setHasTriggeredOvertime] = useState<Record<string, boolean>>({});
+  
+  useEffect(() => {
+    const currentPatient = patients.find(p => p.step_status === "in_progress");
+    if (currentPatient && currentPatient.elapsed_minutes !== null && currentPatient.expected_consultation_minutes !== null) {
+      if (currentPatient.elapsed_minutes >= currentPatient.expected_consultation_minutes) {
+        if (!hasTriggeredOvertime[currentPatient.visit_id]) {
+          const patientsWaiting = patients.filter(p => p.step_status === "pending").length;
+          
+          fetch(`${API_URL}/api/v1/notifications/doctor-overtime`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              clinic_id: process.env.NEXT_PUBLIC_CLINIC_ID ?? "default",
+              area_name: areaName,
+              patients_waiting: patientsWaiting,
+            }),
+            credentials: "include",
+          }).catch(console.error);
+
+          setHasTriggeredOvertime(prev => ({ ...prev, [currentPatient.visit_id]: true }));
+        }
+      }
+    }
+  }, [patients, hasTriggeredOvertime, areaName]);
 
   const handleLogout = async () => {
     await fetch(`${API_URL}/api/v1/doctors/logout`, {
@@ -272,8 +314,8 @@ export default function DoctorDashboardPage({
                     {patients.map((p) => {
                       const isOvertime =
                         p.elapsed_minutes !== null &&
-                        p.estimated_wait_minutes !== null &&
-                        p.elapsed_minutes > p.estimated_wait_minutes + 5;
+                        p.expected_consultation_minutes !== null &&
+                        p.elapsed_minutes > p.expected_consultation_minutes + 5;
                       return (
                         <tr
                           key={p.visit_id}
@@ -286,12 +328,12 @@ export default function DoctorDashboardPage({
                           </td>
                           <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary">
                             <span className="tabular-nums">
-                              {p.estimated_wait_minutes ?? "—"} min
+                              {p.expected_consultation_minutes ?? "—"} min
                             </span>
                             {" / "}
                             <ElapsedBadge
                               elapsed={p.elapsed_minutes}
-                              estimated={p.estimated_wait_minutes}
+                              estimated={p.expected_consultation_minutes}
                             />
                           </td>
                           <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary tabular-nums">
