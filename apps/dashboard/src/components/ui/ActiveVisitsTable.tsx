@@ -34,7 +34,7 @@ function WaitBadge({ minutes }: { minutes: number }) {
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-[var(--color-content-secondary)]">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-content-secondary">
       <Clock className="w-3 h-3" />
       {minutes} min
     </span>
@@ -49,12 +49,12 @@ function StepProgress({ current, total }: { current: number; total: number }) {
           <span
             key={i}
             className={`block h-1.5 w-5 rounded-full ${
-              i < current ? "bg-[var(--color-brand-green)]" : "bg-[var(--color-surface-border)]"
+              i < current ? "bg-brand-green" : "bg-surface-border"
             }`}
           />
         ))}
       </div>
-      <span className="text-xs text-[var(--color-content-secondary)] tabular-nums">
+      <span className="text-xs text-content-secondary tabular-nums">
         {current}/{total}
       </span>
     </div>
@@ -62,58 +62,82 @@ function StepProgress({ current, total }: { current: number; total: number }) {
 }
 
 export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
+  const nextStep = async (visit_id: string) => {
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/v1/visits/${visit_id}/advance-step`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        return console.error(error.message);
+      }
+      console.log(error);
+    }
+  };
+
   if (visits.length === 0) {
     return (
-      <div className="bg-[var(--color-surface-card)] border border-[var(--color-surface-border)] rounded-lg p-8 flex flex-col items-center gap-2 text-center">
-        <CheckCircle2 className="w-10 h-10 text-[var(--color-brand-green)]" />
-        <p className="font-medium text-[var(--color-content-primary)]">Sin visitas activas</p>
-        <p className="text-sm text-[var(--color-content-secondary)]">No hay pacientes en flujo ahora mismo</p>
+      <div className="bg-surface-card border border-surface-border rounded-lg p-8 flex flex-col items-center gap-2 text-center">
+        <CheckCircle2 className="w-10 h-10 text-brand-green" />
+        <p className="font-medium text-content-primary">Sin visitas activas</p>
+        <p className="text-sm text-content-secondary">
+          No hay pacientes en flujo ahora mismo
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden bg-[var(--color-surface-card)] shadow-sm ring-1 ring-[var(--color-surface-border)] rounded-lg">
-      <div className="px-6 py-4 border-b border-[var(--color-surface-border)] flex items-center justify-between">
-        <h2 className="font-semibold text-[var(--color-content-primary)]">
+    <div className="overflow-hidden bg-surface-card shadow-sm ring-1 ring-surface-border rounded-lg">
+      <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
+        <h2 className="font-semibold text-content-primary">
           Pacientes en flujo
         </h2>
-        <span className="text-sm text-[var(--color-content-secondary)]">
+        <span className="text-sm text-content-secondary">
           {visits.length} activo{visits.length !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <table className="min-w-full divide-y divide-[var(--color-surface-border)]">
-        <thead className="bg-[var(--color-surface-base)]">
+      <table className="min-w-full divide-y divide-surface-border">
+        <thead className="bg-surface-base">
           <tr>
-            {["Paciente", "Área actual", "Progreso", "En espera", "Estado"].map(
-              (h) => (
-                <th
-                  key={h}
-                  className="px-6 py-3 text-left text-xs font-medium text-[var(--color-content-secondary)] uppercase tracking-wider"
-                >
-                  {h}
-                </th>
-              ),
-            )}
+            {[
+              "Paciente",
+              "Área actual",
+              "Progreso",
+              "En espera",
+              "Estado",
+              "Acciones",
+            ].map((h) => (
+              <th
+                key={h}
+                className="px-6 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider">
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[var(--color-surface-border)]">
+        <tbody className="divide-y divide-surface-border">
           {visits.map((v) => (
             <tr
               key={v.visit_id}
               className={
                 v.waiting_since_minutes >= URGENCY_THRESHOLD_MINUTES
                   ? "bg-red-50"
-                  : "bg-[var(--color-surface-card)]"
-              }
-            >
+                  : "bg-surface-card"
+              }>
               <td className="px-6 py-4 whitespace-nowrap">
-                <span className="text-sm font-semibold text-[var(--color-content-primary)]">
+                <span className="text-sm font-semibold text-content-primary">
                   {v.patient_name}
                 </span>
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-[var(--color-content-secondary)]">
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-content-secondary">
                 {v.current_area}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
@@ -123,10 +147,17 @@ export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
                 <WaitBadge minutes={v.waiting_since_minutes} />
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--color-content-secondary)]">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-content-secondary">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   En progreso
                 </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-content-secondary">
+                <button
+                  onClick={() => nextStep(v.visit_id)}
+                  className="bg-brand-green text-white px-2 py-1 rounded-md hover:bg-brand-green/80 cursor-pointer">
+                  Avanzar paso
+                </button>
               </td>
             </tr>
           ))}

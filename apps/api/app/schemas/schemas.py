@@ -204,3 +204,57 @@ class VisitContextStepResponse(SequenceStepResponse):
         description="Current step status: pending | in_progress | completed",
         examples=["pending", "in_progress", "completed"],
     )
+
+
+# ── Doctor schemas ────────────────────────────────────────────────────────────
+
+
+class DoctorLoginRequest(BaseModel):
+    employee_id: str = Field(..., pattern=r"^\d{4}$", description="4-digit employee ID")
+    password: str = Field(..., pattern=r"^\d{8}$", description="8-digit numeric password")
+
+
+class DoctorLoginResponse(BaseModel):
+    doctor_id: uuid.UUID
+    full_name: str
+    clinical_area_id: uuid.UUID
+    clinical_area_name: str
+
+
+class DoctorPatientResponse(BaseModel):
+    """One row in the doctor's patient list."""
+    visit_id: uuid.UUID
+    patient_name: str
+    step_status: str  # pending | in_progress | completed
+    step_order: int
+    total_steps: int
+    estimated_wait_minutes: Optional[int]
+    elapsed_minutes: Optional[int]
+
+
+# ── Alert schemas ─────────────────────────────────────────────────────────────
+
+
+class DoctorAlertResponse(BaseModel):
+    id: uuid.UUID
+    clinic_id: uuid.UUID
+    area_id: uuid.UUID
+    visit_id: Optional[uuid.UUID] = None
+    alert_type: str
+    message: str
+    triggered_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ── Study change notification schema ──────────────────────────────────────────
+
+
+class StudyChangeNotification(BaseModel):
+    visit_id: uuid.UUID
+    requesting_doctor_id: uuid.UUID
+    old_area_id: uuid.UUID
+    new_area_id: uuid.UUID
+    reason: Optional[str] = None

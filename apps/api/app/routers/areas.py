@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.predictor_client import get_predictor
-from app.models.models import ClinicalArea, WaitTimeEstimate
+from app.models.models import ClinicalArea, DoctorAlert, AlertType, VisitStep, VisitStepStatus, WaitTimeEstimate
 from app.routers.dashboard_ws import broadcast_to_clinic
 from app.schemas.schemas import (
     OccupancyUpdateRequest,
@@ -119,9 +119,59 @@ async def update_occupancy(
         )
         db.add(wait_estimate)
 
-    await db.commit()
+    # 6. Check for overtime on any in-progress step in this area
+    in_progress_result = await db.execute(
+        select(VisitStep).where(
+            VisitStep.clinical_area_id == area_id,
+            VisitStep.status == VisitStepStatus.IN_PROGRESS,
+        )
+    )
+    for step in in_progress_result.scalars().all():
+        if step.started_at and step.estimated_wait_minutes:
+            elapsed_min = int(
+                (datetime.now(timezone.utc) - step.started_at).total_seconds() / 60
+            )
+            overtime_threshold = step.estimated_wait_minutes + 5
+            if elapsed_min > overtime_threshold:
+                # Deduplicate: skip if an unresolved alert for this visit already exists
+                existing_result = await db.execute(
+                    select(DoctorAlert).where(
+                        DoctorAlert.visit_id == step.visit_id,
+                        DoctorAlert.area_id == area_id,
+                        DoctorAlert.alert_type == AlertType.OVERTIME,
+                        DoctorAlert.resolved_at.is_(None),
+                    )
+                )
+                if existing_result.scalar_one_or_none() is None:
+                    overtime_alert = DoctorAlert(
+                        clinic_id=area.clinic_id,
+                        area_id=area_id,
+                        visit_id=step.visit_id,
+                        alert_type=AlertType.OVERTIME,
+                        message=(
+                            f"Consulta lleva {elapsed_min} min "
+                            f"(estimado: {step.estimated_wait_minutes} min) "
+                            f"en {area.name}"
+                        ),
+                    )
+                    db.add(overtime_alert)
+                    await db.flush()
+                    await broadcast_to_clinic(
+                        str(area.clinic_id),
+                        {
+                            "event": "alert",
+                            "data": {
+                                "alert_type": "overtime",
+                                "area_name": area.name,
+                                "visit_id": str(step.visit_id),
+                                "elapsed_minutes": elapsed_min,
+                                "estimated_minutes": step.estimated_wait_minutes,
+                                "message": overtime_alert.message,
+                            },
+                        },
+                    )
 
-    # 6. Broadcast to dashboard
+    # 7. Broadcast wait time update to dashboard
     await broadcast_to_clinic(
         str(area.clinic_id),
         {
@@ -133,7 +183,7 @@ async def update_occupancy(
         },
     )
 
-    # 7. Return response
+    # 8. Return response
     return OccupancyResponse(wait_time_estimate_minutes=estimated_minutes)
 
 

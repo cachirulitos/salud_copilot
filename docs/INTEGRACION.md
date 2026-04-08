@@ -33,6 +33,7 @@ CV worker POSTs a people count to the API occupancy endpoint.
 API responds with updated wait time estimate.
 
 **Smoke test — manual first:**
+
 ```bash
 # Start API
 docker compose up api
@@ -48,6 +49,7 @@ curl -X POST http://localhost:8000/api/v1/areas/{area_id}/occupancy \
 ```
 
 **Then run actual CV worker:**
+
 ```bash
 cd apps/cv && python main.py --demo
 # Expected log every 5 seconds:
@@ -67,6 +69,7 @@ then update `CAMERA_TO_AREA_MAPPING` in CV `.env`.
 **Who:** Dev 3 delivers model files, Dev 1 integrates.
 
 **What Dev 3 delivers (must be committed before this step):**
+
 ```
 ml/models/model.pkl
 ml/models/encodings.pkl
@@ -96,6 +99,7 @@ def get_predictor() -> WaitTimePredictor:
 ```
 
 **What Dev 1 changes in `apps/api/app/routers/areas.py`:**
+
 ```python
 # Remove the placeholder formula:
 # estimated_minutes = base_time + (people_count * 5)
@@ -117,6 +121,7 @@ estimated_minutes = get_predictor().predict_wait_minutes(
 ```
 
 **Smoke test:**
+
 ```bash
 # POST occupancy twice with different people_count and different hours
 # Estimates should differ based on model, not just count * 5
@@ -169,12 +174,14 @@ async def trigger_bot_notification(
 ```
 
 Add to `app/core/config.py`:
+
 ```python
 bot_base_url: str = "http://localhost:8001"
 internal_bot_token: str = "saludcopilot-internal-token-change-in-prod"
 ```
 
 **Smoke test:**
+
 ```bash
 # Terminal 1: start bot
 cd apps/bot && python main.py
@@ -259,6 +266,7 @@ async def get_visit_context(visit_id: str) -> dict | None:
 ```
 
 **Smoke test:**
+
 ```bash
 # Simulate incoming WhatsApp message to bot webhook
 curl -X POST http://localhost:8001/bot/webhook \
@@ -330,6 +338,7 @@ async def broadcast_to_clinic(clinic_id: str, event: dict) -> None:
 **Where to call `broadcast_to_clinic`:**
 
 In `POST /areas/{area_id}/occupancy`:
+
 ```python
 await broadcast_to_clinic(str(area.clinic_id), {
     "event": "wait_time_updated",
@@ -342,6 +351,7 @@ await broadcast_to_clinic(str(area.clinic_id), {
 ```
 
 In `POST /visits/{visit_id}/advance-step`:
+
 ```python
 await broadcast_to_clinic(str(visit.clinic_id), {
     "event": "visit_updated",
@@ -354,6 +364,7 @@ await broadcast_to_clinic(str(visit.clinic_id), {
 ```
 
 **Smoke test:**
+
 ```bash
 # Open dashboard at http://localhost:3000
 # Check browser console: "WebSocket connected — EN VIVO"
@@ -376,6 +387,7 @@ curl -X POST http://localhost:8000/api/v1/areas/{area_id}/occupancy \
 **Who:** all developers together.
 
 **Setup:**
+
 ```bash
 # Start everything in order
 docker compose up postgres redis
@@ -413,6 +425,7 @@ This is what the jury sees. Practice until it's smooth.
 All must be populated before Day 2 starts.
 
 **API `.env`:**
+
 ```
 DATABASE_URL=postgresql+asyncpg://saludcopilot:saludcopilot_dev@localhost:5432/saludcopilot_dev
 REDIS_URL=redis://localhost:6379/0
@@ -423,6 +436,7 @@ INTERNAL_BOT_TOKEN=saludcopilot-internal-token-change-in-prod
 ```
 
 **Bot `.env`:**
+
 ```
 WHATSAPP_TOKEN=your-meta-token
 WHATSAPP_PHONE_ID=your-phone-number-id
@@ -434,6 +448,7 @@ INTERNAL_BOT_TOKEN=saludcopilot-internal-token-change-in-prod
 ```
 
 **CV `.env`:**
+
 ```
 API_BASE_URL=http://localhost:8000
 INTERNAL_CV_TOKEN=saludcopilot-internal-token-change-in-prod
@@ -441,6 +456,7 @@ CAMERA_TO_AREA_MAPPING={"0": "paste-area-uuid-here"}
 ```
 
 **Dashboard `.env.local`:**
+
 ```
 NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_WS_URL=ws://localhost:8000

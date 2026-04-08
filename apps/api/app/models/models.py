@@ -63,6 +63,11 @@ class RuleType(str, enum.Enum):
     RESTRICTION = "restriction"
 
 
+class AlertType(str, enum.Enum):
+    OVERTIME = "overtime"
+    QUEUE_FULL = "queue_full"
+
+
 # ── Models ───────────────────────────────────────────────────────────────────
 
 
@@ -220,3 +225,38 @@ class PatientEvent(Base):
 
     def __repr__(self) -> str:
         return f"<PatientEvent id={self.id} event_type={self.event_type}>"
+
+
+class Doctor(Base):
+    __tablename__ = "doctors"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_id: Mapped[str] = mapped_column(String(4), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    full_name: Mapped[str] = mapped_column(String, nullable=False)
+    clinical_area_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clinical_areas.id"), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    clinical_area: Mapped["ClinicalArea"] = relationship("ClinicalArea")
+
+    def __repr__(self) -> str:
+        return f"<Doctor id={self.id} employee_id={self.employee_id}>"
+
+
+class DoctorAlert(Base):
+    __tablename__ = "doctor_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clinic_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False)
+    area_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clinical_areas.id"), nullable=False)
+    visit_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("visits.id"), nullable=True)
+    alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    clinic: Mapped["Clinic"] = relationship("Clinic")
+    clinical_area: Mapped["ClinicalArea"] = relationship("ClinicalArea")
+
+    def __repr__(self) -> str:
+        return f"<DoctorAlert id={self.id} type={self.alert_type}>"

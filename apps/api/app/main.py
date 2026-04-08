@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.routers import visits, admin, areas, patients, visit_steps, notifications, dashboard, dashboard_ws
+from app.routers import visits, admin, areas, patients, visit_steps, notifications, dashboard, dashboard_ws, doctors
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +38,7 @@ app.include_router(visit_steps.router,   prefix="/api/v1/visit-steps",   tags=["
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(dashboard.router,     prefix="/api/v1/dashboard",     tags=["Dashboard"])
 app.include_router(admin.router,         prefix="/api/v1/admin",         tags=["Admin"])
+app.include_router(doctors.router,       prefix="/api/v1/doctors",       tags=["Doctors"])
 app.include_router(dashboard_ws.router,  prefix="/ws/dashboard",         tags=["Dashboard WebSocket"])
 
 

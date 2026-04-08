@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -6,7 +9,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  ResponsiveContainer,
 } from "recharts";
 
 const AREA_COLORS: Record<string, string> = {
@@ -24,6 +26,24 @@ interface WaitTimeChartProps {
 }
 
 export default function WaitTimeChart({ history }: WaitTimeChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) {
+        setDimensions({ width, height });
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   // Transform data format for Recharts
   const data = history.labels.map((label, index) => {
     const dataPoint: any = { time: label };
@@ -34,15 +54,14 @@ export default function WaitTimeChart({ history }: WaitTimeChartProps) {
   });
 
   return (
-    <div className="h-72 w-full">
-      <ResponsiveContainer
-        width="100%"
-        height="100%"
-        minWidth={100}
-        minHeight={100}>
+    <div ref={containerRef} className="h-72 w-full">
+      {dimensions && (
         <LineChart
+          width={dimensions.width}
+          height={dimensions.height}
           data={data}
-          margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+          margin={{ top: 5, right: 10, left: -20, bottom: 0 }}
+        >
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="#2A2D3A"
@@ -66,7 +85,7 @@ export default function WaitTimeChart({ history }: WaitTimeChartProps) {
               color: "#d1d5db",
               borderRadius: "0.5rem",
             }}
-            formatter={(value: any, name: any, props: any) => {
+            formatter={(value: any, name: any) => {
               return [`${value} min`, name] as [string, string];
             }}
           />
@@ -88,7 +107,7 @@ export default function WaitTimeChart({ history }: WaitTimeChartProps) {
             />
           ))}
         </LineChart>
-      </ResponsiveContainer>
+      )}
     </div>
   );
 }
