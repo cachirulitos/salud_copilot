@@ -160,6 +160,7 @@ class VisitContextResponse(BaseModel):
 
     visit_id: uuid.UUID = Field(..., description="UUID of the visit")
     patient_name: str = Field(..., description="Full name of the patient")
+    patient_phone: str = Field(..., description="WhatsApp phone number of the patient")
     current_step: SequenceStepResponse = Field(
         ..., description="The step the patient is currently at"
     )

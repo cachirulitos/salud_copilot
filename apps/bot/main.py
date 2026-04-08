@@ -292,12 +292,16 @@ async def _handle_checkin_message(phone_number: str, message_text: str) -> None:
     # Check for existing active session (avoid duplicate check-ins)
     existing_session = await get_session(phone_number)
     if existing_session is not None:
-        await send_text_message(
-            phone_number,
-            "Ya tienes una visita activa. "
-            "Escribe cualquier mensaje para consultar tu estado.",
-        )
-        return
+        context = await get_visit_context(existing_session["visit_id"])
+        if context is None:
+            await delete_session(phone_number)
+        else:
+            await send_text_message(
+                phone_number,
+                "Ya tienes una visita activa. "
+                "Escribe cualquier mensaje para consultar tu estado.",
+            )
+            return
 
     result = await register_visit(
         phone_number=phone_number,

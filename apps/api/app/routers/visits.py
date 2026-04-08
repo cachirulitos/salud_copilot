@@ -445,6 +445,7 @@ async def get_visit_context(
     return VisitContextResponse(
         visit_id=visit.id,
         patient_name=patient.full_name,
+        patient_phone=patient.phone_number,
         current_step=current_step_response,
         remaining_steps=remaining_steps_response,
         total_estimated_minutes=total_estimated_minutes,
