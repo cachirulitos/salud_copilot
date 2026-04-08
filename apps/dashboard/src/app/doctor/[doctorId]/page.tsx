@@ -129,6 +129,9 @@ export default function DoctorDashboardPage({
             },
             ...prev,
           ]);
+          if (d.old_area === localStorage.getItem("doctor_area_name")) {
+            refreshData();
+          }
         } else if (msg.event === "doctor_overtime_alert") {
           const d = msg.data;
           setNotifications((prev) => [
