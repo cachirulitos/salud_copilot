@@ -6,7 +6,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-HTTP_TIMEOUT_SECONDS = 10.0
+HTTP_TIMEOUT_SECONDS = 30.0
 CHECK_IN_PATH = "/api/v1/visits/check-in"
 VISIT_CONTEXT_PATH = "/api/v1/visits/{visit_id}/context"
 
