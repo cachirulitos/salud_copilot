@@ -90,7 +90,7 @@ export default function DoctorDashboardPage({
   params: { doctorId: string };
 }) {
   const router = useRouter();
-  const { patients, alerts, loading, error, advanceStep, resolveAlert } =
+  const { patients, alerts, loading, error, advanceStep, resolveAlert, refreshData } =
     useDoctorData();
 
   const [notifications, setNotifications] = useState<StudyChangeNotification[]>(
@@ -142,6 +142,11 @@ export default function DoctorDashboardPage({
             },
             ...prev,
           ]);
+        } else if (msg.event === "checkin_created") {
+          const d = msg.data;
+          if (d.current_area === localStorage.getItem("doctor_area_name")) {
+            refreshData();
+          }
         }
       } catch {
         // ignore parse errors

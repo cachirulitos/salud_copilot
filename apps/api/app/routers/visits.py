@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import redis.asyncio as redis
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,7 +64,7 @@ redis_client = redis.from_url(settings.redis_url)
     status_code=status.HTTP_201_CREATED,
     summary="Register a patient visit and calculate the study sequence",
 )
-async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
+async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """
     Registers a patient visit (walk-in or appointment) and returns the
     optimal study sequence calculated by the clinical rules engine.
@@ -236,7 +236,8 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         sequence=sequence_response,
         total_estimated_minutes=sequence_result.estimated_time_minutes,
     )
-    await broadcast_checkin_created(
+    background_tasks.add_task(
+        broadcast_checkin_created,
         clinic_id=str(request.clinic_id),
         visit_id=visit.id,
         patient_id=patient.id,
@@ -244,7 +245,8 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         total_estimated_minutes=sequence_result.estimated_time_minutes,
         patient_name=patient.full_name,
     )
-    await trigger_bot_notification(
+    background_tasks.add_task(
+        trigger_bot_notification,
         visit_id=str(visit.id),
         notification_type="welcome",
         payload=response.model_dump(mode="json"),
@@ -354,6 +356,7 @@ async def get_visit_context(
 @router.post("/{visit_id}/advance-step", response_model=AdvanceStepResponse)
 async def advance_step(
     visit_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Advance the current visit step to completed and start the next one."""
@@ -403,7 +406,8 @@ async def advance_step(
         position = await redis_client.zrank(
             f"queue:{next_step.clinical_area_id}", str(visit.id)
         )
-        await trigger_bot_notification(
+        background_tasks.add_task(
+            trigger_bot_notification,
             visit_id=str(visit.id),
             notification_type="turn_ready",
             payload={
@@ -418,7 +422,8 @@ async def advance_step(
     await db.flush()
 
     broadcast_area_name = next_step_response.area_name if next_step_response else current_area.name
-    await broadcast_visit_step_updated(
+    background_tasks.add_task(
+        broadcast_visit_step_updated,
         clinic_id=str(visit.clinic_id),
         visit_id=visit.id,
         visit_status=visit.status.value,

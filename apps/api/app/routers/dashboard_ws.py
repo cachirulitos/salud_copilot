@@ -93,17 +93,32 @@ async def broadcast_visit_step_updated(
         },
     )
 
+import asyncio
+
 async def broadcast_to_clinic(clinic_id: str, event: dict) -> None:
     """Send an event to all WebSocket connections for a given clinic."""
     active_connections = _connections.get(clinic_id, [])
-    dead_connections: list[WebSocket] = []
-    for connection in active_connections:
+    if not active_connections:
+        return
+
+    async def _send(connection: WebSocket):
         try:
             await connection.send_json(event)
+            return None
         except Exception:
+            return connection
+
+    results = await asyncio.gather(*[_send(c) for c in active_connections])
+    
+    dead_connections = [c for c in results if c is not None]
+
+    if dead_connections:
+        for connection in dead_connections:
             logger.warning("Removing dead WebSocket for clinic %s", clinic_id)
-            dead_connections.append(connection)
-    for connection in dead_connections:
-        active_connections.remove(connection)
-    if clinic_id in _connections and not _connections[clinic_id]:
-        del _connections[clinic_id]
+            try:
+                active_connections.remove(connection)
+            except ValueError:
+                pass
+                
+        if clinic_id in _connections and not _connections[clinic_id]:
+            del _connections[clinic_id]

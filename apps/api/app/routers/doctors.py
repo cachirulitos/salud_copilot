@@ -114,11 +114,12 @@ async def get_my_patients(
     # Find all visit steps in this area that are pending or in_progress
     steps_result = await db.execute(
         select(VisitStep)
+        .join(Visit, Visit.id == VisitStep.visit_id)
         .where(
             VisitStep.clinical_area_id == doctor.clinical_area_id,
             VisitStep.status.in_([VisitStepStatus.PENDING, VisitStepStatus.IN_PROGRESS]),
         )
-        .order_by(VisitStep.id.asc()) # Using ID to keep chronological order
+        .order_by(Visit.created_at.asc()) # Using Visit created_at to keep chronological order
     )
     steps = list(steps_result.scalars().all())
 
@@ -190,5 +191,8 @@ async def get_my_patients(
                 elapsed_minutes=elapsed,
             )
         )
+
+    # Ensure in-progress patient appears at the top
+    patients.sort(key=lambda p: (0 if p.step_status == VisitStepStatus.IN_PROGRESS.value else 1))
 
     return patients

@@ -89,5 +89,5 @@ export function useDoctorData() {
     setAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };
 
-  return { patients, alerts, loading, error, advanceStep, resolveAlert };
+  return { patients, alerts, loading, error, advanceStep, resolveAlert, refreshData: load };
 }
