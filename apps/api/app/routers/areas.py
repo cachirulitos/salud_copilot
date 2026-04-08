@@ -66,45 +66,38 @@ async def update_occupancy(
 
     # 3. Get queue length from Redis
     queue_length = await redis_client.zcard(f"queue:{area_id}")
+    
+    # ── Weighted Queue (Media Ponderada) ──
+    # 80% official virtual queue (Redis) + 20% physical people detected by CV
+    effective_queue = int(round((queue_length * 0.8) + (request.people_count * 0.2)))
 
     # 4. Calculate estimated wait via ML model, fallback to formula if unavailable
     now = datetime.now()
     predictor = get_predictor()
+    estimated_minutes = None
+
     if predictor is not None:
         clinic_result = await db.execute(select(Clinic).where(Clinic.id == area.clinic_id))
         clinic = clinic_result.scalar_one_or_none()
         historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
 
         if historical_clinic_id is not None:
-            base_ml_estimate = predictor.predict_wait_minutes(
+            estimated_minutes = predictor.predict_wait_minutes(
                 hour_of_day=now.hour,
                 day_of_week=now.weekday(),
                 study_type_raw_id=area.study_type,
                 clinic_raw_id=historical_clinic_id,
                 simultaneous_capacity=area.simultaneous_capacity,
-                current_queue_length=queue_length,
+                current_queue_length=effective_queue,
                 has_appointment=False,
             )
-            estimated_minutes = (
-                base_ml_estimate
-                + (request.people_count * WAIT_MINUTES_PER_PERSON)
-            )
-            print(f"ML Base: {base_ml_estimate} | Total con {request.people_count} personas: {estimated_minutes}")
-        else:
-            # No ML mapping for this clinic — use formula
-            base = BASE_WAIT_TIMES.get(area.study_type, DEFAULT_BASE_WAIT_MINUTES)
-            estimated_minutes = (
-                base
-                + (request.people_count * WAIT_MINUTES_PER_PERSON)
-                + (queue_length * WAIT_MINUTES_PER_QUEUED)
-            )
-    else:
+            print(f"ML Weighted Estimate: {estimated_minutes} mins (effective queue: {effective_queue})")
+
+    if estimated_minutes is None:
+        # No ML mapping or predictor failed — use fallback formula
         base = BASE_WAIT_TIMES.get(area.study_type, DEFAULT_BASE_WAIT_MINUTES)
-        estimated_minutes = (
-            base
-            + (request.people_count * WAIT_MINUTES_PER_PERSON)
-            + (queue_length * WAIT_MINUTES_PER_QUEUED)
-        )
+        estimated_minutes = base + (effective_queue * 4)
+
 
     # 5. Upsert WaitTimeEstimate
     result = await db.execute(

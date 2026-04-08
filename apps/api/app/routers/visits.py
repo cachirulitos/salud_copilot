@@ -154,6 +154,10 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         now = datetime.now()
         queue_length = await redis_client.zcard(f"queue:{area.id}")
         
+        # ── Weighted Queue (Media Ponderada) ──
+        # 80% official virtual queue (Redis) + 20% physical people detected by CV
+        effective_queue = int(round((queue_length * 0.8) + (people_in_area * 0.2)))
+        
         predictor = get_predictor()
         estimated_mins = None
 
@@ -172,20 +176,20 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
                     study_type_raw_id=area.study_type,
                     clinic_raw_id=historical_clinic_id,
                     simultaneous_capacity=area.simultaneous_capacity,
-                    current_queue_length=queue_length,
+                    current_queue_length=effective_queue,
                     has_appointment=request.has_appointment,
                 )
-                estimated_mins = base_ml_estimate + (people_in_area * 3) # WAIT_MINUTES_PER_PERSON from areas.py
+                # Omitimos sumar a mano las personas para evitar doble penalización, 
+                # porque ya mandamos al ML la fila "efectiva".
+                estimated_mins = base_ml_estimate
         
         # Priority 2: Formulas fallback if ML cannot be loaded or area has no mapping
         if estimated_mins is None:
-            # Fallback to last saved DB estimate if we have it
             if wait_estimate:
                 estimated_mins = wait_estimate.estimated_minutes
             else:
-                # Absolute fallback
-                base = 15 # BASE_WAIT_TIMES.get(area.study_type, 15)
-                estimated_mins = base + (people_in_area * 3) + (queue_length * 5)
+                base = 15
+                estimated_mins = base + (effective_queue * 4)
 
                 
         db.add(VisitStep(
