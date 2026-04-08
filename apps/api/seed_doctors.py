@@ -58,6 +58,13 @@ DOCTORS = [
         "area_uuid": get_stable_uuid("area_1", 5),   # Rayos X
         "area_label": "Rayos X",
     },
+    {
+        "employee_id": "1003",
+        "password": "12345678",
+        "full_name": "Dra. Sofía Reyes",
+        "area_uuid": get_stable_uuid("area_1", 6),   # Ultrasonido
+        "area_label": "Ultrasonido",
+    },
 ]
 
 

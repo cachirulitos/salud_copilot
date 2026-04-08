@@ -121,7 +121,20 @@ async def get_my_patients(
         )
         .order_by(Visit.created_at.asc()) # Using Visit created_at to keep chronological order
     )
-    steps = list(steps_result.scalars().all())
+    all_potential_steps = list(steps_result.scalars().all())
+
+    # Filter so a patient only appears in the doctor queue if this is ACTUALLY their current step
+    steps = []
+    for step in all_potential_steps:
+        earlier_uncompleted = await db.execute(
+            select(VisitStep).where(
+                VisitStep.visit_id == step.visit_id,
+                VisitStep.step_order < step.step_order,
+                VisitStep.status != VisitStepStatus.COMPLETED
+            )
+        )
+        if earlier_uncompleted.first() is None:
+            steps.append(step)
 
     # ── Automágico: Call the next patient automatically if idle ──
     has_in_progress = any(s.status == VisitStepStatus.IN_PROGRESS for s in steps)

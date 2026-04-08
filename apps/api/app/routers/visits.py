@@ -415,6 +415,14 @@ async def get_visit_context(
     )
     current_area = result.scalar_one()
 
+    # 6.5 Queue position for the first step
+    if current_step.status != VisitStepStatus.IN_PROGRESS:
+        position = await redis_client.zrank(
+            f"queue:{current_step.clinical_area_id}", str(visit.id)
+        )
+    else:
+        position = None
+
     current_step_response = VisitContextStepResponse(
         order=current_step.step_order,
         area_id=current_step.clinical_area_id,
@@ -422,6 +430,7 @@ async def get_visit_context(
         status=current_step.status.value,
         estimated_wait_minutes=current_wait_minutes,
         rule_applied=current_step.rule_applied,
+        position_in_queue=position,
     )
 
     # 7. Remaining steps (pending, excluding current)
