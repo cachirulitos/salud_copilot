@@ -118,9 +118,21 @@ async def get_my_patients(
             VisitStep.clinical_area_id == doctor.clinical_area_id,
             VisitStep.status.in_([VisitStepStatus.PENDING, VisitStepStatus.IN_PROGRESS]),
         )
-        .order_by(VisitStep.started_at.asc().nullslast())
+        .order_by(VisitStep.id.asc()) # Using ID to keep chronological order
     )
     steps = list(steps_result.scalars().all())
+
+    # ── Automágico: Call the next patient automatically if idle ──
+    has_in_progress = any(s.status == VisitStepStatus.IN_PROGRESS for s in steps)
+    if not has_in_progress and steps:
+        # The doctor is completely free. Pop the first pending!
+        first_pending = steps[0]
+        if first_pending.status == VisitStepStatus.PENDING:
+            first_pending.status = VisitStepStatus.IN_PROGRESS
+            first_pending.started_at = datetime.now(timezone.utc)
+            await db.commit()
+            # No need to refetch, object is updated in memory
+
 
     # Count total steps per visit
     total_steps_result = await db.execute(
