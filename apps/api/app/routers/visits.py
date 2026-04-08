@@ -150,13 +150,16 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         )
         wait_estimate = wait_estimate_result.scalar_one_or_none()
         people_in_area = wait_estimate.people_in_area if wait_estimate else 0
+        print(f"People in area: {people_in_area}", flush=True)
 
         now = datetime.now()
         queue_length = await redis_client.zcard(f"queue:{area.id}")
-        
+        print(f"Queue length: {queue_length}", flush=True)
+       
         # ── Weighted Queue (Media Ponderada) ──
-        # 80% official virtual queue (Redis) + 20% physical people detected by CV
-        effective_queue = int(round((queue_length * 0.8) + (people_in_area * 0.2)))
+        # 70% official virtual queue (Redis) + 30% physical people detected by CV
+        effective_queue = int(round((queue_length * 0.7) + (people_in_area * 0.3)))
+        print(f"Effective queue: {effective_queue}", flush=True)
         
         predictor = get_predictor()
         estimated_mins = None
@@ -179,6 +182,7 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
                     current_queue_length=effective_queue,
                     has_appointment=request.has_appointment,
                 )
+                print(f"ML Base: {base_ml_estimate}", flush=True)
                 # Omitimos sumar a mano las personas para evitar doble penalización, 
                 # porque ya mandamos al ML la fila "efectiva".
                 estimated_mins = base_ml_estimate
