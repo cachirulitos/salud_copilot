@@ -144,36 +144,48 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
     for step in sequence_result.steps:
         area = area_by_id[step.study.id]
         
-        # Priority 1: Use the latest estimate produced by ML + Computer Vision
+        # Priority 1: Predict fresh ML stats natively
         wait_estimate_result = await db.execute(
             select(WaitTimeEstimate).where(WaitTimeEstimate.clinical_area_id == area.id)
         )
         wait_estimate = wait_estimate_result.scalar_one_or_none()
+        people_in_area = wait_estimate.people_in_area if wait_estimate else 0
+
+        now = datetime.now()
+        queue_length = await redis_client.zcard(f"queue:{area.id}")
         
-        if wait_estimate:
-            estimated_mins = wait_estimate.estimated_minutes
-        else:
-            # Priority 2: If CV camera is offline, predict via ML assuming 0 physical queue
-            estimated_mins = PLACEHOLDER_WAIT_MINUTES
-            predictor = get_predictor()
-            if predictor:
-                now = datetime.now()
-                queue_length = await redis_client.zcard(f"queue:{area.id}")
-                clinic_result = await db.execute(
-                    select(Clinic).where(Clinic.id == area.clinic_id)
+        predictor = get_predictor()
+        estimated_mins = None
+
+        if predictor:
+            
+            clinic_result = await db.execute(
+                select(Clinic).where(Clinic.id == area.clinic_id)
+            )
+            clinic = clinic_result.scalar_one_or_none()
+            historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
+            
+            if historical_clinic_id is not None:
+                base_ml_estimate = predictor.predict_wait_minutes(
+                    hour_of_day=now.hour,
+                    day_of_week=now.weekday(),
+                    study_type_raw_id=area.study_type,
+                    clinic_raw_id=historical_clinic_id,
+                    simultaneous_capacity=area.simultaneous_capacity,
+                    current_queue_length=queue_length,
+                    has_appointment=request.has_appointment,
                 )
-                clinic = clinic_result.scalar_one_or_none()
-                historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
-                if historical_clinic_id is not None:
-                    estimated_mins = predictor.predict_wait_minutes(
-                        hour_of_day=now.hour,
-                        day_of_week=now.weekday(),
-                        study_type_raw_id=area.study_type,
-                        clinic_raw_id=historical_clinic_id,
-                        simultaneous_capacity=area.simultaneous_capacity,
-                        current_queue_length=queue_length,
-                        has_appointment=request.has_appointment,
-                    )
+                estimated_mins = base_ml_estimate + (people_in_area * 3) # WAIT_MINUTES_PER_PERSON from areas.py
+        
+        # Priority 2: Formulas fallback if ML cannot be loaded or area has no mapping
+        if estimated_mins is None:
+            # Fallback to last saved DB estimate if we have it
+            if wait_estimate:
+                estimated_mins = wait_estimate.estimated_minutes
+            else:
+                # Absolute fallback
+                base = 15 # BASE_WAIT_TIMES.get(area.study_type, 15)
+                estimated_mins = base + (people_in_area * 3) + (queue_length * 5)
 
                 
         db.add(VisitStep(
