@@ -112,10 +112,14 @@ async def seed_real_data():
                 clinic = Clinic(
                     id=clinic_uuid,
                     name=name,
-                    address="Dirección pendiente", # Puedes llenar mas tarde
+                    address="Dirección pendiente",
                     active=True,
+                    historical_ml_id=idx,
                 )
                 db.add(clinic)
+            else:
+                # Keep historical_ml_id in sync for existing rows
+                clinic.historical_ml_id = idx
             
             # En cada clínica, insertemos al menos un bloque base de las Áreas más concurridas para empezar
             # Posteriormente puedes ampliar este array

@@ -36,6 +36,9 @@ async def trigger_bot_notification(
                 response.text,
             )
             return False
+    except httpx.ConnectError:
+        logger.warning("Bot unreachable for visit %s — skipping notification", visit_id)
+        return False
     except Exception:
         logger.exception("Bot notification error for visit %s", visit_id)
         return False

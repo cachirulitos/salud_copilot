@@ -95,6 +95,8 @@ class Clinic(Base):
     longitude: Mapped[float] = mapped_column(Numeric(10, 7), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    historical_ml_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     clinical_areas: Mapped[list["ClinicalArea"]] = relationship("ClinicalArea", back_populates="clinic")
     visits: Mapped[list["Visit"]] = relationship("Visit", back_populates="clinic")
 

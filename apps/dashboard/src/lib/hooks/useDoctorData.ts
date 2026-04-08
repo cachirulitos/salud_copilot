@@ -54,6 +54,7 @@ export function useDoctorData() {
   const load = async () => {
     try {
       const [p, a] = await Promise.all([fetchPatients(), fetchAlerts()]);
+      console.log(p);
       setPatients(p);
       setAlerts(a);
       setError(null);

@@ -22,8 +22,8 @@ def get_predictor():
             from predictor import WaitTimePredictor  # noqa: PLC0415
 
             _predictor = WaitTimePredictor()
-            logger.info("ML predictor loaded successfully")
+            logger.info(">>>>>>>>>>>>>>>>>  ML predictor loaded successfully")
         except Exception as exc:
-            logger.error("Failed to load ML predictor: %s — falling back to placeholder", exc)
+            logger.error(">>>>>>>>>>>>>>>>  Failed to load ML predictor: %s — falling back to placeholder", exc)
             _predictor = None
     return _predictor

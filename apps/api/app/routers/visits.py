@@ -20,6 +20,7 @@ from app.core.database import get_db
 from app.routers.dashboard_ws import broadcast_checkin_created, broadcast_visit_step_updated
 from app.services.notification_service import trigger_bot_notification
 from app.models.models import (
+    Clinic,
     ClinicalArea,
     Patient,
     PatientEvent,
@@ -152,22 +153,28 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         if wait_estimate:
             estimated_mins = wait_estimate.estimated_minutes
         else:
-            # Priority 2: If CV camera is offline or hasn't pushed data yet, predict fresh ML stats assuming 0 physical queue
+            # Priority 2: If CV camera is offline, predict via ML assuming 0 physical queue
             estimated_mins = PLACEHOLDER_WAIT_MINUTES
             predictor = get_predictor()
             if predictor:
                 now = datetime.now()
                 queue_length = await redis_client.zcard(f"queue:{area.id}")
-                historical_clinic_id = 1 if str(area.clinic_id) == "1db93003-d50e-4f56-80d0-8b994b98eaa8" else 5
-                estimated_mins = predictor.predict_wait_minutes(
-                    hour_of_day=now.hour,
-                    day_of_week=now.weekday(),
-                    study_type_raw_id=area.study_type,
-                    clinic_raw_id=historical_clinic_id,
-                    simultaneous_capacity=area.simultaneous_capacity,
-                    current_queue_length=queue_length,
-                    has_appointment=request.has_appointment,
+                clinic_result = await db.execute(
+                    select(Clinic).where(Clinic.id == area.clinic_id)
                 )
+                clinic = clinic_result.scalar_one_or_none()
+                historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
+                if historical_clinic_id is not None:
+                    estimated_mins = predictor.predict_wait_minutes(
+                        hour_of_day=now.hour,
+                        day_of_week=now.weekday(),
+                        study_type_raw_id=area.study_type,
+                        clinic_raw_id=historical_clinic_id,
+                        simultaneous_capacity=area.simultaneous_capacity,
+                        current_queue_length=queue_length,
+                        has_appointment=request.has_appointment,
+                    )
+
                 
         db.add(VisitStep(
             visit_id=visit.id,
@@ -198,7 +205,7 @@ async def check_in(request: CheckInRequest, db: AsyncSession = Depends(get_db)):
         await _enqueue_first_area(visit.id, sequence_result.steps[0].study.id)
 
     # ── Step 9: flush remaining inserts and return ────────────────────────
-    await db.flush()
+    await db.commit()
 
     response = CheckInResponse(
         visit_id=visit.id,

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.predictor_client import get_predictor
-from app.models.models import ClinicalArea, DoctorAlert, AlertType, VisitStep, VisitStepStatus, WaitTimeEstimate
+from app.models.models import Clinic, ClinicalArea, DoctorAlert, AlertType, VisitStep, VisitStepStatus, WaitTimeEstimate
 from app.routers.dashboard_ws import broadcast_to_clinic
 from app.schemas.schemas import (
     OccupancyUpdateRequest,
@@ -71,26 +71,33 @@ async def update_occupancy(
     now = datetime.now()
     predictor = get_predictor()
     if predictor is not None:
-        # Mapeamos el UUID de la API local al 'idSucursal' entero de la tabla histórica de ML
-        historical_clinic_id = 1 if str(area.clinic_id) == "1db93003-d50e-4f56-80d0-8b994b98eaa8" else 5
-        
-        base_ml_estimate = predictor.predict_wait_minutes(
-            hour_of_day=now.hour,
-            day_of_week=now.weekday(),
-            study_type_raw_id=area.study_type,
-            clinic_raw_id=historical_clinic_id,
-            simultaneous_capacity=area.simultaneous_capacity,
-            current_queue_length=queue_length,
-            has_appointment=False,
-        )
-        
-        # El ML devuelve el tiempo base histórico. 
-        # Sumamos la penalización por la gente FISICA detectada en cámara y virtual en fila.
-        estimated_minutes = (
-            base_ml_estimate 
-            + (request.people_count * WAIT_MINUTES_PER_PERSON)
-        )
-        print(f"ML Base: {base_ml_estimate} | Total con {request.people_count} personas: {estimated_minutes}")
+        clinic_result = await db.execute(select(Clinic).where(Clinic.id == area.clinic_id))
+        clinic = clinic_result.scalar_one_or_none()
+        historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
+
+        if historical_clinic_id is not None:
+            base_ml_estimate = predictor.predict_wait_minutes(
+                hour_of_day=now.hour,
+                day_of_week=now.weekday(),
+                study_type_raw_id=area.study_type,
+                clinic_raw_id=historical_clinic_id,
+                simultaneous_capacity=area.simultaneous_capacity,
+                current_queue_length=queue_length,
+                has_appointment=False,
+            )
+            estimated_minutes = (
+                base_ml_estimate
+                + (request.people_count * WAIT_MINUTES_PER_PERSON)
+            )
+            print(f"ML Base: {base_ml_estimate} | Total con {request.people_count} personas: {estimated_minutes}")
+        else:
+            # No ML mapping for this clinic — use formula
+            base = BASE_WAIT_TIMES.get(area.study_type, DEFAULT_BASE_WAIT_MINUTES)
+            estimated_minutes = (
+                base
+                + (request.people_count * WAIT_MINUTES_PER_PERSON)
+                + (queue_length * WAIT_MINUTES_PER_QUEUED)
+            )
     else:
         base = BASE_WAIT_TIMES.get(area.study_type, DEFAULT_BASE_WAIT_MINUTES)
         estimated_minutes = (

@@ -1,0 +1,11 @@
+scikit-learn
+pandas
+numpy
+joblib
+jupyter
+matplotlib
+psycopg2-binary
+sqlalchemy
+python-dotenv
+asyncpg
+openpyxl

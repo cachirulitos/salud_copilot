@@ -12,6 +12,9 @@ from app.routers import visits, admin, areas, patients, visit_steps, notificatio
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Eagerly load ML predictor so the success/fail log appears at startup
+    from app.core.predictor_client import get_predictor
+    get_predictor()
     yield
 
 

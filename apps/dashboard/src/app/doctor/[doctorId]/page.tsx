@@ -33,10 +33,12 @@ function ElapsedBadge({
   elapsed: number | null;
   estimated: number | null;
 }) {
-  if (elapsed === null) return <span className="text-content-secondary text-xs">—</span>;
+  if (elapsed === null)
+    return <span className="text-content-secondary text-xs">—</span>;
   const isOver = estimated !== null && elapsed > estimated + 5;
   return (
-    <span className={`text-xs font-semibold tabular-nums ${isOver ? "text-alert-red" : "text-content-primary"}`}>
+    <span
+      className={`text-xs font-semibold tabular-nums ${isOver ? "text-alert-red" : "text-content-primary"}`}>
       {elapsed} min{isOver && " ⚠"}
     </span>
   );
@@ -56,15 +58,15 @@ function AlertCard({
         isOvertime
           ? "bg-red-50 border-red-200"
           : "bg-yellow-50 border-yellow-200"
-      }`}
-    >
+      }`}>
       <span
         className={`mt-1 w-2 h-2 rounded-full shrink-0 ${
           isOvertime ? "bg-alert-red" : "bg-alert-yellow"
         }`}
       />
       <div className="flex-1 min-w-0">
-        <p className={`text-xs font-semibold ${isOvertime ? "text-alert-red" : "text-alert-yellow"}`}>
+        <p
+          className={`text-xs font-semibold ${isOvertime ? "text-alert-red" : "text-alert-yellow"}`}>
           {isOvertime ? "Tiempo excedido" : "Alerta de cola"}
         </p>
         <p className="text-xs text-content-secondary mt-0.5 leading-relaxed">
@@ -73,8 +75,7 @@ function AlertCard({
       </div>
       <button
         onClick={() => onResolve(alert.id)}
-        className="text-xs text-content-secondary hover:text-content-primary underline transition-colors"
-      >
+        className="text-xs text-content-secondary hover:text-content-primary underline transition-colors">
         Resolver
       </button>
     </div>
@@ -92,7 +93,9 @@ export default function DoctorDashboardPage({
   const { patients, alerts, loading, error, advanceStep, resolveAlert } =
     useDoctorData();
 
-  const [notifications, setNotifications] = useState<StudyChangeNotification[]>([]);
+  const [notifications, setNotifications] = useState<StudyChangeNotification[]>(
+    [],
+  );
   const [doctorName, setDoctorName] = useState("Doctor");
   const [areaName, setAreaName] = useState("");
 
@@ -149,8 +152,19 @@ export default function DoctorDashboardPage({
       <div className="min-h-screen bg-surface-base flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-content-secondary">
           <svg className="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8v8z"
+            />
           </svg>
           <span className="text-sm">Cargando pacientes…</span>
         </div>
@@ -169,24 +183,40 @@ export default function DoctorDashboardPage({
       <header className="bg-surface-card border-b border-surface-border px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-brand-green/10 border border-brand-green/20 flex items-center justify-center">
-            <svg className="w-4 h-4 text-brand-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            <svg
+              className="w-4 h-4 text-brand-green"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+              />
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-bold text-content-primary leading-tight">Portal Médico</h1>
+            <h1 className="text-sm font-bold text-content-primary leading-tight">
+              Portal Médico
+            </h1>
             <p className="text-xs text-content-secondary leading-tight">
               {doctorName}
               {areaName && (
-                <> · <span className="text-brand-green font-medium">{areaName}</span></>
+                <>
+                  {" "}
+                  ·{" "}
+                  <span className="text-brand-green font-medium">
+                    {areaName}
+                  </span>
+                </>
               )}
             </p>
           </div>
         </div>
         <button
           onClick={handleLogout}
-          className="text-xs text-content-secondary hover:text-content-primary border border-surface-border px-3 py-1.5 rounded-lg transition-colors bg-surface-base"
-        >
+          className="text-xs text-content-secondary hover:text-surface-base hover:bg-alert-red/80 hover:border-alert-red/80 border border-surface-border px-3 py-1.5 rounded-lg transition-colors bg-surface-base">
           Cerrar sesión
         </button>
       </header>
@@ -223,11 +253,16 @@ export default function DoctorDashboardPage({
                 <table className="min-w-full divide-y divide-surface-border">
                   <thead className="bg-surface-base">
                     <tr>
-                      {["Paciente", "Estado", "Est. / Transcurrido", "Paso", ""].map((h) => (
+                      {[
+                        "Paciente",
+                        "Estado",
+                        "Est. / Transcurrido",
+                        "Paso",
+                        "",
+                      ].map((h) => (
                         <th
                           key={h}
-                          className="px-5 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider"
-                        >
+                          className="px-5 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider">
                           {h}
                         </th>
                       ))}
@@ -242,8 +277,7 @@ export default function DoctorDashboardPage({
                       return (
                         <tr
                           key={p.visit_id}
-                          className={isOvertime ? "bg-red-50" : ""}
-                        >
+                          className={isOvertime ? "bg-red-50" : ""}>
                           <td className="px-5 py-4 text-sm font-semibold text-content-primary whitespace-nowrap">
                             {p.patient_name}
                           </td>
@@ -268,8 +302,7 @@ export default function DoctorDashboardPage({
                               id={`advance-${p.visit_id}`}
                               disabled={p.step_status !== "in_progress"}
                               onClick={() => advanceStep(p.visit_id)}
-                              className="text-xs font-medium bg-brand-green hover:bg-brand-green/90 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors"
-                            >
+                              className="text-xs font-medium bg-brand-green hover:bg-brand-green/90 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
                               Avanzar paso
                             </button>
                           </td>
