@@ -19,11 +19,18 @@ _connections: dict[str, list[WebSocket]] = {}
 async def dashboard_websocket(websocket: WebSocket, clinic_id: str, db: AsyncSession = Depends(get_db)):
     """Accept a WebSocket connection and keep it alive for real-time dashboard events."""
     await websocket.accept()
+
+    try:
+        clinic_uuid = uuid.UUID(clinic_id)
+    except ValueError:
+        await websocket.close(code=1008, reason="Invalid clinic_id")
+        return
+
     _connections.setdefault(clinic_id, []).append(websocket)
-    
+
     try:
         # Push initial state immediately upon connection
-        overview_data = await _get_overview_data(uuid.UUID(clinic_id), db)
+        overview_data = await _get_overview_data(clinic_uuid, db)
         await websocket.send_json({"event": "overview_snapshot", "data": overview_data})
         
         while True:

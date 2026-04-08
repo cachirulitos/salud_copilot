@@ -354,3 +354,7 @@ class ReorderSequenceResponse(BaseModel):
             "ultrasonido transvaginal'). Empty when accepted=True."
         ),
     )
+    reorder_rejected_reason: Optional[str] = Field(
+        None,
+        description="Human-readable reason when the reorder was rejected due to insufficient time savings.",
+    )
