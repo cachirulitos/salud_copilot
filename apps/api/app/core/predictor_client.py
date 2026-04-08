@@ -23,8 +23,6 @@ def get_predictor():
 
             _predictor = WaitTimePredictor()
             logger.info(">>>>>>>>>>>>>>>>>  ML predictor loaded successfully")
-        except Exception as exc:
-            print(exc)
-            logger.error(">>>>>>>>>>>>>>>>  Failed to load ML predictor: %s — falling back to placeholder", exc)
+        except Exception:
             _predictor = None
     return _predictor

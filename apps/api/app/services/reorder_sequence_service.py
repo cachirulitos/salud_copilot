@@ -2,7 +2,7 @@
 
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,7 @@ import redis.asyncio as redis
 from app.routers.dashboard_ws import broadcast_to_clinic
 
 from app.core.exceptions import SequenceRuleViolationError
-from app.models.models import ClinicalArea, Visit, VisitStatus, VisitStep, VisitStepStatus
+from app.models.models import ClinicalArea, Visit, VisitStatus, VisitStep, VisitStepStatus, WaitTimeEstimate
 from app.schemas.schemas import (
     ExamPayloadItem,
     ReorderSequenceRequest,
@@ -136,6 +136,22 @@ async def reorder_visit_sequence(
             rules_violations=exc.violations,
         )
 
+    # ── 5.5 Check time savings ────────────────────────────────────────────────
+    savings = await _compute_time_savings(pending_steps, request.proposed_sequence, area_by_id, db)
+    if savings <= 5:
+        current_sequence = await _build_current_sequence(pending_steps, area_by_id)
+        return ReorderSequenceResponse(
+            visit_id=visit_id,
+            accepted=False,
+            sequence=current_sequence,
+            total_estimated_minutes=_estimate_total(len(pending_steps)),
+            rules_violations=[],
+            reorder_rejected_reason=(
+                f"El reordenamiento no genera ahorro suficiente "
+                f"({savings} min ≤ 5 min mínimo requerido)."
+            ),
+        )
+
     # ── 6. Persist updated step_order values ──────────────────────────────────
     step_by_area: dict[str, VisitStep] = {
         str(s.clinical_area_id): s for s in pending_steps
@@ -218,6 +234,35 @@ async def reorder_visit_sequence(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
+async def _compute_time_savings(
+    pending_steps: list[VisitStep],
+    proposed_sequence: list,
+    area_by_id: dict,
+    db: AsyncSession,
+) -> int:
+    """
+    Returns current_total - proposed_total in minutes.
+    Positive means the proposed order saves time.
+    Falls back to 0 for any area missing a WaitTimeEstimate.
+    """
+    area_ids = [s.clinical_area_id for s in pending_steps]
+    wt_result = await db.execute(
+        select(WaitTimeEstimate).where(WaitTimeEstimate.clinical_area_id.in_(area_ids))
+    )
+    wait_by_area: dict[str, int] = {
+        str(wt.clinical_area_id): wt.estimated_minutes
+        for wt in wt_result.scalars().all()
+    }
+
+    current_order = [str(s.clinical_area_id) for s in sorted(pending_steps, key=lambda s: s.step_order)]
+    proposed_order = [str(uid) for uid in proposed_sequence]
+
+    current_total = sum(wait_by_area.get(aid, 0) for aid in current_order)
+    proposed_total = sum(wait_by_area.get(aid, 0) for aid in proposed_order)
+
+    return current_total - proposed_total
+
 
 def _estimate_total(n: int) -> int:
     return n * MINUTES_PER_STUDY + max(n - 1, 0) * MINUTES_TRANSFER

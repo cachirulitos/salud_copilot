@@ -1,6 +1,7 @@
 """
 SaludCopilot API — Main entry point
 """
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,8 @@ async def lifespan(app: FastAPI):
     # Eagerly load ML predictor so the success/fail log appears at startup
     from app.core.predictor_client import get_predictor
     get_predictor()
+    from app.services.step_monitor_service import run_step_monitor
+    asyncio.create_task(run_step_monitor(interval_seconds=60))
     yield
 
 

@@ -19,7 +19,9 @@ from app.models.models import (
     VisitStep,
     Patient,
     VisitStepStatus,
-    VisitStatus
+    VisitStatus,
+    DoctorAlert,
+    AlertType,
 )
 
 redis_client = redis.from_url(settings.redis_url)
@@ -100,25 +102,23 @@ async def _get_overview_data(clinic_id: uuid.UUID, db: AsyncSession) -> dict[str
         "areas_at_risk": sum(1 for a in area_stats if a["status"] in ["warning", "saturated"])
     }
     
-    # Mock alerts
-    alerts = []
-    for a in area_stats:
-        if a["status"] == "saturated":
-            alerts.append({
-                "id": f"alert-{uuid.uuid4()}",
-                "severity": "critical",
-                "area_name": a["area_name"],
-                "message": f"Cola de {a['current_queue_length']} pacientes. Capacidad máxima alcanzada.",
-                "triggered_at": datetime.now(timezone.utc).isoformat()
-            })
-        elif a["status"] == "warning":
-            alerts.append({
-                "id": f"alert-{uuid.uuid4()}",
-                "severity": "warning",
-                "area_name": a["area_name"],
-                "message": f"Espera estimada supera 20 minutos.",
-                "triggered_at": datetime.now(timezone.utc).isoformat()
-            })
+    alerts_result = await db.execute(
+        select(DoctorAlert, ClinicalArea.name.label("area_name"))
+        .join(ClinicalArea, DoctorAlert.area_id == ClinicalArea.id)
+        .where(DoctorAlert.clinic_id == clinic_id, DoctorAlert.resolved_at.is_(None))
+        .order_by(DoctorAlert.triggered_at.desc())
+        .limit(20)
+    )
+    alerts = [
+        {
+            "id": str(row.DoctorAlert.id),
+            "severity": "critical" if row.DoctorAlert.alert_type == AlertType.OVERTIME else "warning",
+            "area_name": row.area_name,
+            "message": row.DoctorAlert.message,
+            "triggered_at": row.DoctorAlert.triggered_at.isoformat(),
+        }
+        for row in alerts_result
+    ]
             
     return {
         "summary": summary,

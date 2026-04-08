@@ -5,7 +5,7 @@ WORKDIR /app
 # del contenedor puede diferir de la local, lo cual rompe la validación.
 # En dev esto es aceptable; CI/prod usaría una imagen fijada a la misma versión.
 COPY package.json bun.lockb ./
-RUN bun install
+RUN bun install --no-frozen-lockfile
 
 # No COPY . .  — docker-compose monta el código como volumen para hot reload
 EXPOSE 3000
