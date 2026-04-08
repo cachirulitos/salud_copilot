@@ -36,6 +36,15 @@ class CheckInRequest(BaseModel):
     study_ids: list[uuid.UUID] = Field(
         ..., min_length=1, description="Ordered list of study UUIDs requested"
     )
+    proposed_sequence: Optional[list[uuid.UUID]] = Field(
+        None,
+        description=(
+            "Ordered list of area UUIDs representing the patient's preferred "
+            "exam sequence. When provided, the sequence is validated against the "
+            "rules engine before being accepted. Must contain the same UUIDs as "
+            "study_ids. Omit (or set null) to let the engine decide the order."
+        ),
+    )
     has_appointment: bool = Field(
         ..., description="True if the patient has a prior appointment"
     )
@@ -74,6 +83,40 @@ class AdvanceStepRequest(BaseModel):
 # ── Response schemas (salida) ─────────────────────────────────────────────────
 
 
+# ── Rules Engine payload DTOs (internal — shared between Prompt 1 & 2) ────────
+
+
+class ExamPayloadItem(BaseModel):
+    """
+    Represents a single exam inside a RulesEngineValidationPayload.
+    Carries all Study attributes the rules engine needs plus the
+    caller's proposed position in the sequence.
+    """
+
+    area_id: uuid.UUID = Field(..., description="UUID of the ClinicalArea")
+    study_type: str = Field(
+        ..., description="Study type string matching rules engine constants (e.g. 'laboratorio')"
+    )
+    requires_fasting: bool = Field(default=False)
+    is_urgent: bool = Field(default=False)
+    has_appointment: bool = Field(default=False)
+    proposed_order: int = Field(
+        ..., ge=1, description="1-based position proposed by the patient"
+    )
+
+
+class RulesEngineValidationPayload(BaseModel):
+    """
+    Internal DTO consumed by the validation service (Prompt 2).
+    Wraps the full ordered list of exams the caller wants to validate.
+    """
+
+    exams: list[ExamPayloadItem] = Field(
+        ..., min_length=1, description="Ordered list of exams to validate"
+    )
+
+
+
 class SequenceStepResponse(BaseModel):
     """
     One step in a patient's study sequence.
@@ -81,6 +124,7 @@ class SequenceStepResponse(BaseModel):
     """
 
     order: int = Field(..., description="Position in the sequence (1-based)")
+    area_id: uuid.UUID = Field(..., description="UUID of the clinical area")
     area_name: str = Field(..., description="Name of the clinical area")
     estimated_wait_minutes: int = Field(
         ..., description="Estimated wait time in minutes for this step"
@@ -259,3 +303,54 @@ class StudyChangeNotification(BaseModel):
     old_area_id: uuid.UUID
     new_area_id: uuid.UUID
     reason: Optional[str] = None
+
+
+# ── Reorder schemas ───────────────────────────────────────────────────────────
+
+
+class ReorderSequenceRequest(BaseModel):
+    """
+    POST /api/v1/visits/{visit_id}/reorder-sequence
+
+    Allows the patient (or a staff member) to propose a new exam order
+    for a visit that has not yet started. The proposed_sequence must
+    contain exactly the same area UUIDs that are pending on the visit.
+    """
+
+    proposed_sequence: list[uuid.UUID] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Ordered list of ClinicalArea UUIDs representing the desired exam order. "
+            "Must contain the same UUIDs as the visit's pending steps."
+        ),
+    )
+
+
+class ReorderSequenceResponse(BaseModel):
+    """
+    Response for POST /api/v1/visits/{visit_id}/reorder-sequence
+
+    Returns the updated sequence if valid, or the list of violated rules
+    if the proposed order was rejected.
+    """
+
+    visit_id: uuid.UUID = Field(..., description="UUID of the visit")
+    accepted: bool = Field(
+        ...,
+        description="True if the proposed sequence passed all rules and was persisted.",
+    )
+    sequence: list[SequenceStepResponse] = Field(
+        ...,
+        description="The effective sequence after the operation (updated or unchanged).",
+    )
+    total_estimated_minutes: int = Field(
+        ..., description="Total estimated visit duration in minutes"
+    )
+    rules_violations: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of violated rule descriptions (e.g. 'R-01: Papanicolaou must precede "
+            "ultrasonido transvaginal'). Empty when accepted=True."
+        ),
+    )

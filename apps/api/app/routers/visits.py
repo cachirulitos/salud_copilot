@@ -35,6 +35,10 @@ from app.schemas.schemas import (
     AdvanceStepStepResponse,
     CheckInRequest,
     CheckInResponse,
+    ExamPayloadItem,
+    ReorderSequenceRequest,
+    ReorderSequenceResponse,
+    RulesEngineValidationPayload,
     SequenceStepResponse,
     VisitContextResponse,
     VisitContextStepResponse,
@@ -44,6 +48,14 @@ from app.core.config import ROOT_DIR
 sys.path.append(str(ROOT_DIR))
 
 from packages.rules_engine.src.rules_engine.engine import Study, calculate_sequence
+from app.services.sequence_validation_service import validate_proposed_sequence
+from app.core.exceptions import SequenceRuleViolationError
+from app.services.reorder_sequence_service import (
+    reorder_visit_sequence,
+    _VisitNotFoundError,
+    _VisitNotReorderableError,
+    _SequenceUUIDMismatchError,
+)
 
 router = APIRouter()
 
@@ -53,6 +65,7 @@ FASTING_STUDY_TYPE = "laboratorio"
 DEFAULT_PATIENT_NAME_PREFIX = "Paciente "
 
 redis_client = redis.from_url(settings.redis_url)
+
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -133,6 +146,82 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
     ]
 
     # ── Step 5: calculate optimal sequence ───────────────────────────────
+    area_by_id: dict[str, ClinicalArea] = {str(area.id): area for area in areas}
+
+    if request.proposed_sequence:
+        # Validate that proposed_sequence contains exactly the same area UUIDs
+        provided_set = set(str(u) for u in request.proposed_sequence)
+        requested_set = set(str(u) for u in request.study_ids)
+        if provided_set != requested_set:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "error": "proposed_sequence must contain exactly the same UUIDs as study_ids.",
+                    "code": "SEQUENCE_UUID_MISMATCH",
+                },
+            )
+
+        # Delegate validation to the service layer
+        try:
+            validate_proposed_sequence(
+                payload=RulesEngineValidationPayload(
+                    exams=[
+                        ExamPayloadItem(
+                            area_id=uid,
+                            study_type=area_by_id[str(uid)].study_type,
+                            requires_fasting=(
+                                area_by_id[str(uid)].study_type == FASTING_STUDY_TYPE
+                            ),
+                            is_urgent=request.is_urgent,
+                            has_appointment=request.has_appointment,
+                            proposed_order=idx + 1,
+                        )
+                        for idx, uid in enumerate(request.proposed_sequence)
+                    ]
+                ),
+                is_urgent=request.is_urgent,
+                has_appointment=request.has_appointment,
+            )
+        except SequenceRuleViolationError as exc:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "error": "The proposed sequence violates one or more clinical rules.",
+                    "code": exc.code,
+                    "rules_violations": exc.violations,
+                },
+            )
+
+        # Build the ordered override list for step persistence
+        sequence_result_steps_override = [
+            (
+                Study(
+                    id=str(uid),
+                    type=area_by_id[str(uid)].study_type,
+                    requires_fasting=(
+                        area_by_id[str(uid)].study_type == FASTING_STUDY_TYPE
+                    ),
+                    is_urgent=request.is_urgent,
+                    has_appointment=request.has_appointment,
+                ),
+                str(uid),
+            )
+            for uid in request.proposed_sequence
+        ]
+    else:
+        sequence_result_steps_override = None
+
+    studies = [
+        Study(
+            id=str(area.id),
+            type=area.study_type,
+            requires_fasting=(area.study_type == FASTING_STUDY_TYPE),
+            is_urgent=request.is_urgent,
+            has_appointment=request.has_appointment,
+        )
+        for area in areas
+    ]
+
     sequence_result = calculate_sequence(studies)
 
     # ── Steps 6: persist VisitStep rows ──────────────────────────────────
@@ -140,10 +229,21 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
     sequence_response: list[SequenceStepResponse] = []
 
     from app.core.predictor_client import get_predictor
-    
-    for step in sequence_result.steps:
-        area = area_by_id[step.study.id]
+
+    # If the caller provided a valid proposed_sequence, build steps in that order;
+    # otherwise use the engine-calculated sequence.
+    if sequence_result_steps_override:
+        steps_to_process = [
+            (idx + 1, area_by_id[area_id_str])
+            for idx, (_, area_id_str) in enumerate(sequence_result_steps_override)
+        ]
+    else:
+        steps_to_process = [
+            (step.order, area_by_id[step.study.id])
+            for step in sequence_result.steps
+        ]
         
+    for step_order, area in steps_to_process:
         # Priority 1: Predict fresh ML stats natively
         wait_estimate_result = await db.execute(
             select(WaitTimeEstimate).where(WaitTimeEstimate.clinical_area_id == area.id)
@@ -157,7 +257,6 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
         print(f"Queue length: {queue_length}", flush=True)
        
         # ── Weighted Queue (Media Ponderada) ──
-        # 70% official virtual queue (Redis) + 30% physical people detected by CV
         if people_in_area >= 4:
             effective_queue = int(round((queue_length * 0.95) + (people_in_area * 0.05)))
         else:
@@ -168,7 +267,6 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
         estimated_mins = None
 
         if predictor:
-            
             clinic_result = await db.execute(
                 select(Clinic).where(Clinic.id == area.clinic_id)
             )
@@ -186,11 +284,9 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
                     has_appointment=request.has_appointment,
                 )
                 print(f"ML Base: {base_ml_estimate}", flush=True)
-                # Omitimos sumar a mano las personas para evitar doble penalización, 
-                # porque ya mandamos al ML la fila "efectiva".
                 estimated_mins = base_ml_estimate
         
-        # Priority 2: Formulas fallback if ML cannot be loaded or area has no mapping
+        # Priority 2: Formulas fallback
         if estimated_mins is None:
             if wait_estimate:
                 estimated_mins = wait_estimate.estimated_minutes
@@ -198,20 +294,20 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
                 base = 15
                 estimated_mins = base + (effective_queue * 4)
 
-                
         db.add(VisitStep(
             visit_id=visit.id,
             clinical_area_id=area.id,
-            step_order=step.order,
+            step_order=step_order,
             status=VisitStepStatus.PENDING,
-            rule_applied=step.rule_applied,
+            rule_applied=None,
             estimated_wait_minutes=int(estimated_mins),
         ))
         sequence_response.append(SequenceStepResponse(
-            order=step.order,
+            order=step_order,
+            area_id=area.id,
             area_name=area.name,
             estimated_wait_minutes=int(estimated_mins),
-            rule_applied=step.rule_applied,
+            rule_applied=None,
         ))
 
     # ── Step 7: record arrival event ──────────────────────────────────────
@@ -321,6 +417,7 @@ async def get_visit_context(
 
     current_step_response = VisitContextStepResponse(
         order=current_step.step_order,
+        area_id=current_step.clinical_area_id,
         area_name=current_area.name,
         status=current_step.status.value,
         estimated_wait_minutes=current_wait_minutes,
@@ -334,6 +431,7 @@ async def get_visit_context(
             area = await _load_area_by_id(step.clinical_area_id, db)
             remaining_steps_response.append(VisitContextStepResponse(
                 order=step.step_order,
+                area_id=step.clinical_area_id,
                 area_name=area.name,
                 status=step.status.value,
                 estimated_wait_minutes=step.estimated_wait_minutes,
@@ -445,6 +543,42 @@ async def advance_step(
         completed_step=completed_step_response,
         next_step=next_step_response,
     )
+
+
+@router.post(
+    "/{visit_id}/reorder-sequence",
+    response_model=ReorderSequenceResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Propose a new exam sequence for a pending visit",
+)
+async def reorder_sequence(
+    visit_id: uuid.UUID,
+    request: ReorderSequenceRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Allows a patient or staff member to reorder their pending exams.
+    Validates the proposed order against clinical rules before applying.
+    """
+    try:
+        response = await reorder_visit_sequence(visit_id, request, db)
+        await db.commit()
+        return response
+    except _VisitNotFoundError as exc:
+        return JSONResponse(
+            status_code=exc.http_status,
+            content={"error": exc.message, "code": exc.code},
+        )
+    except _VisitNotReorderableError as exc:
+        return JSONResponse(
+            status_code=exc.http_status,
+            content={"error": exc.message, "code": exc.code},
+        )
+    except _SequenceUUIDMismatchError as exc:
+        return JSONResponse(
+            status_code=exc.http_status,
+            content={"error": exc.message, "code": exc.code},
+        )
 
 
 # ── Helper Functions ────────────────────────────────────────────────────────
