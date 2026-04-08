@@ -121,6 +121,95 @@ def calculate_sequence(studies: list[Study]) -> SequenceResult:
     return SequenceResult(steps=steps, estimated_time_minutes=estimated_time_minutes)
 
 
+def validate_sequence(studies_with_order: list[tuple["Study", int]]) -> list[str]:
+    """
+    Validates whether a proposed exam sequence complies with all clinical rules.
+
+    Does NOT reorder — only detects violations. Suitable for pre-flight checks
+    before persisting a patient-proposed sequence.
+
+    Parameters
+    ----------
+    studies_with_order : list[tuple[Study, int]]
+        Each element is (Study, proposed_order) where proposed_order is 1-based.
+        The list does not need to be pre-sorted by the caller.
+
+    Returns
+    -------
+    list[str]
+        Violation descriptions, one per broken rule.
+        An empty list means the proposed sequence is fully valid.
+    """
+    if not studies_with_order:
+        return []
+
+    # Build a lookup: study_type -> proposed_order (1-based)
+    order_by_type: dict[str, int] = {
+        s.type: order for s, order in studies_with_order
+    }
+    types_present = set(order_by_type.keys())
+    violations: list[str] = []
+
+    # ── R-01 ─────────────────────────────────────────────────────────────────
+    if {"papanicolaou", "ultrasonido_transvaginal"}.issubset(types_present):
+        if order_by_type["papanicolaou"] > order_by_type["ultrasonido_transvaginal"]:
+            violations.append(
+                "R-01: Papanicolaou must be performed before Ultrasonido Transvaginal."
+            )
+
+    # ── R-02 ─────────────────────────────────────────────────────────────────
+    if "papanicolaou" in types_present and types_present & {"vph", "cultivo_vaginal"}:
+        companions = [t for t in ("vph", "cultivo_vaginal") if t in types_present]
+        for companion in companions:
+            if order_by_type["papanicolaou"] > order_by_type[companion]:
+                violations.append(
+                    f"R-02: Papanicolaou must be performed before {companion} "
+                    f"when both are requested."
+                )
+                break  # report once per R-02 activation
+
+    # ── R-03 ─────────────────────────────────────────────────────────────────
+    if "densitometria" in types_present and types_present & {"tomografia", "resonancia"}:
+        imaging = [t for t in ("tomografia", "resonancia") if t in types_present]
+        for img in imaging:
+            if order_by_type["densitometria"] > order_by_type[img]:
+                violations.append(
+                    f"R-03: Densitometria must be performed before {img}."
+                )
+
+    # ── R-04 ─────────────────────────────────────────────────────────────────
+    if "laboratorio" in types_present and "ultrasonido" in types_present:
+        fasting_labs = [s for s, _ in studies_with_order
+                        if s.type == "laboratorio" and s.requires_fasting]
+        if fasting_labs:
+            if order_by_type["laboratorio"] > order_by_type["ultrasonido"]:
+                violations.append(
+                    "R-04: Fasting Laboratorio must be performed before Ultrasonido."
+                )
+
+    # ── R-05 ─────────────────────────────────────────────────────────────────
+    fasting_studies = [
+        (s, o) for s, o in studies_with_order if s.requires_fasting
+    ]
+    non_fasting_studies = [
+        (s, o) for s, o in studies_with_order if not s.requires_fasting
+    ]
+    if fasting_studies and non_fasting_studies:
+        max_fasting_order = max(o for _, o in fasting_studies)
+        min_non_fasting_order = min(o for _, o in non_fasting_studies)
+        # If any fasting study is placed *before* a non-fasting one it is invalid
+        # (non-fasting should all precede fasting)
+        min_fasting_order = min(o for _, o in fasting_studies)
+        max_non_fasting_order = max(o for _, o in non_fasting_studies)
+        if min_fasting_order < max_non_fasting_order:
+            violations.append(
+                "R-05: Studies without preparation must all precede studies that "
+                "require preparation (e.g., fasting)."
+            )
+
+    return violations
+
+
 def _apply_rules(studies: list[Study]) -> list[tuple[Study, Optional[str], str]]:
     """
     Applies all clinical rules in priority order.

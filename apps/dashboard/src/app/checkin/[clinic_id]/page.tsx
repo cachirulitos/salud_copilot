@@ -10,6 +10,10 @@ import {
   Phone,
   ClipboardList,
   Clock,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -42,7 +46,8 @@ export default function CheckinPage() {
   const [areasLoading, setAreasLoading] = useState(true);
 
   const [phone, setPhone] = useState("");
-  const [selectedAreaId, setSelectedAreaId] = useState(preselectedArea);
+  const [selectedAreas, setSelectedAreas] = useState<Area[]>([]);
+  const [dropdownValue, setDropdownValue] = useState("");
   const [hasAppointment, setHasAppointment] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
@@ -55,16 +60,44 @@ export default function CheckinPage() {
       .then((data: Area[]) => {
         setAreas(data);
         if (!preselectedArea && data.length > 0) {
-          setSelectedAreaId(data[0].id);
+          setDropdownValue(data[0].id);
+        } else if (preselectedArea) {
+          setDropdownValue(preselectedArea);
+          const area = data.find((a) => a.id === preselectedArea);
+          if (area) setSelectedAreas([area]);
         }
       })
       .catch(() => {})
       .finally(() => setAreasLoading(false));
   }, [clinic_id, preselectedArea]);
 
+  function handleAddArea() {
+    if (!dropdownValue) return;
+    const area = areas.find((a) => a.id === dropdownValue);
+    if (!area) return;
+    if (selectedAreas.some((a) => a.id === area.id)) return;
+    setSelectedAreas([...selectedAreas, area]);
+  }
+
+  function handleRemoveArea(id: string) {
+    setSelectedAreas(selectedAreas.filter((a) => a.id !== id));
+  }
+
+  function handleMoveArea(index: number, direction: "up" | "down") {
+    if (direction === "up" && index > 0) {
+      const newArr = [...selectedAreas];
+      [newArr[index - 1], newArr[index]] = [newArr[index], newArr[index - 1]];
+      setSelectedAreas(newArr);
+    } else if (direction === "down" && index < selectedAreas.length - 1) {
+      const newArr = [...selectedAreas];
+      [newArr[index], newArr[index + 1]] = [newArr[index + 1], newArr[index]];
+      setSelectedAreas(newArr);
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!phone.trim() || !selectedAreaId) return;
+    if (!phone.trim() || selectedAreas.length === 0) return;
 
     setSubmitting(true);
     setError(null);
@@ -74,13 +107,15 @@ export default function CheckinPage() {
       : `+52${phone.replace(/\D/g, "")}`;
 
     try {
+      const areaIds = selectedAreas.map((a) => a.id);
       const res = await fetch(`${API}/api/v1/visits/check-in`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone_number: normalizedPhone,
           clinic_id,
-          study_ids: [selectedAreaId],
+          study_ids: areaIds,
+          proposed_sequence: areaIds,
           has_appointment: hasAppointment,
           is_urgent: false,
         }),
@@ -88,7 +123,10 @@ export default function CheckinPage() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body?.detail ?? `Error ${res.status}`);
+        if (body?.rules_violations && Array.isArray(body.rules_violations)) {
+          throw new Error(body.rules_violations.join(" "));
+        }
+        throw new Error(body?.detail ?? body?.error ?? `Error ${res.status}`);
       }
 
       setResult(await res.json());
@@ -160,9 +198,7 @@ export default function CheckinPage() {
 
           <p className="text-center text-xs text-gray-400">
             Folio de visita:{" "}
-            <span className="font-mono text-gray-500">
-              {result.visit_id.slice(0, 8)}...
-            </span>
+            <span className="font-mono text-gray-500">{result.visit_id}</span>
           </p>
         </div>
       </div>
@@ -216,29 +252,85 @@ export default function CheckinPage() {
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               <span className="flex items-center gap-1.5 mb-1">
                 <ClipboardList className="w-3.5 h-3.5" />
-                Servicio a realizar
+                Estudios y Prioridad
               </span>
             </label>
+
             {areasLoading ? (
               <div className="flex items-center gap-2 text-gray-400 text-sm py-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Cargando servicios...
               </div>
             ) : (
-              <select
-                required
-                value={selectedAreaId}
-                onChange={(e) => setSelectedAreaId(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green">
-                <option value="" disabled>
-                  Selecciona un servicio
-                </option>
-                {areas.map((area) => (
-                  <option key={area.id} value={area.id}>
-                    {area.name}
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  <select
+                    value={dropdownValue}
+                    onChange={(e) => setDropdownValue(e.target.value)}
+                    className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green">
+                    <option value="" disabled>
+                      Añadir estudio a la visita...
+                    </option>
+                    {areas
+                      .filter(
+                        (area) => !selectedAreas.some((s) => s.id === area.id),
+                      )
+                      .map((area) => (
+                        <option key={area.id} value={area.id}>
+                          {area.name}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleAddArea}
+                    className="px-4 py-3 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center">
+                    <Plus className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Priority List */}
+                {selectedAreas.length > 0 && (
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl divide-y divide-gray-200 overflow-hidden">
+                    {selectedAreas.map((area, index) => (
+                      <div
+                        key={area.id}
+                        className="flex items-center px-3 py-2">
+                        <div className="flex-1 min-w-0 pr-3">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            <span className="text-gray-400 inline-block w-4 mr-2">
+                              {index + 1}.
+                            </span>
+                            {area.name}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={index === 0}
+                            onClick={() => handleMoveArea(index, "up")}
+                            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-200 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent">
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={index === selectedAreas.length - 1}
+                            onClick={() => handleMoveArea(index, "down")}
+                            className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-200 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent">
+                            <ChevronDown className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveArea(area.id)}
+                            className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg ml-1">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -270,7 +362,7 @@ export default function CheckinPage() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={submitting || areasLoading}
+            disabled={submitting || areasLoading || selectedAreas.length === 0}
             className="w-full bg-brand-green text-white font-semibold py-3.5 rounded-xl text-base hover:bg-brand-green/80 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {submitting ? (
               <>

@@ -13,6 +13,7 @@ export interface DoctorPatient {
   step_order: number;
   total_steps: number;
   estimated_wait_minutes: number | null;
+  expected_consultation_minutes: number | null;
   elapsed_minutes: number | null;
 }
 
@@ -88,5 +89,5 @@ export function useDoctorData() {
     setAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };
 
-  return { patients, alerts, loading, error, advanceStep, resolveAlert };
+  return { patients, alerts, loading, error, advanceStep, resolveAlert, refreshData: load };
 }

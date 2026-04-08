@@ -114,11 +114,12 @@ async def get_my_patients(
     # Find all visit steps in this area that are pending or in_progress
     steps_result = await db.execute(
         select(VisitStep)
+        .join(Visit, Visit.id == VisitStep.visit_id)
         .where(
             VisitStep.clinical_area_id == doctor.clinical_area_id,
             VisitStep.status.in_([VisitStepStatus.PENDING, VisitStepStatus.IN_PROGRESS]),
         )
-        .order_by(VisitStep.id.asc()) # Using ID to keep chronological order
+        .order_by(Visit.created_at.asc()) # Using Visit created_at to keep chronological order
     )
     steps = list(steps_result.scalars().all())
 
@@ -145,6 +146,21 @@ async def get_my_patients(
     }
 
     patients: list[DoctorPatientResponse] = []
+    
+    # Calculate Expected Consultation Time
+    area_result = await db.execute(select(ClinicalArea).where(ClinicalArea.id == doctor.clinical_area_id))
+    area = area_result.scalar_one()
+    BASE_WAIT_TIMES = {
+        "laboratorio": 15,
+        "ultrasonido": 20,
+        "rayos_x": 12,
+        "electrocardiograma": 8,
+        "papanicolaou": 10,
+        "densitometria": 15,
+        "tomografia": 25,
+    }
+    expected_consultation_minutes = BASE_WAIT_TIMES.get(area.study_type, 15)
+
     for step in steps:
         visit_result = await db.execute(select(Visit).where(Visit.id == step.visit_id))
         visit = visit_result.scalar_one_or_none()
@@ -171,8 +187,12 @@ async def get_my_patients(
                 step_order=step.step_order,
                 total_steps=total_steps_map.get(step.visit_id, 1),
                 estimated_wait_minutes=step.estimated_wait_minutes,
+                expected_consultation_minutes=expected_consultation_minutes,
                 elapsed_minutes=elapsed,
             )
         )
+
+    # Ensure in-progress patient appears at the top
+    patients.sort(key=lambda p: (0 if p.step_status == VisitStepStatus.IN_PROGRESS.value else 1))
 
     return patients

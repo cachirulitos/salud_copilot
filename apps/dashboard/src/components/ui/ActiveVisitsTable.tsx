@@ -1,4 +1,5 @@
 import { Clock, CheckCircle2, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 export interface ActiveVisit {
   visit_id: string;
@@ -62,7 +63,12 @@ function StepProgress({ current, total }: { current: number; total: number }) {
 }
 
 export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
+  const [hiddenVisits, setHiddenVisits] = useState<Set<string>>(new Set());
+
   const nextStep = async (visit_id: string) => {
+    // Hide immediately in UI
+    setHiddenVisits(prev => new Set(prev).add(visit_id));
+    
     try {
       const res = await fetch(
         `http://localhost:8000/api/v1/visits/${visit_id}/advance-step`,
@@ -81,7 +87,9 @@ export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
     }
   };
 
-  if (visits.length === 0) {
+  const displayVisits = visits.filter((v) => !hiddenVisits.has(v.visit_id));
+
+  if (displayVisits.length === 0) {
     return (
       <div className="bg-surface-card border border-surface-border rounded-lg p-8 flex flex-col items-center gap-2 text-center">
         <CheckCircle2 className="w-10 h-10 text-brand-green" />
@@ -100,7 +108,7 @@ export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
           Pacientes en flujo
         </h2>
         <span className="text-sm text-content-secondary">
-          {visits.length} activo{visits.length !== 1 ? "s" : ""}
+          {displayVisits.length} activo{displayVisits.length !== 1 ? "s" : ""}
         </span>
       </div>
 
@@ -124,7 +132,7 @@ export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
           </tr>
         </thead>
         <tbody className="divide-y divide-surface-border">
-          {visits.map((v) => (
+          {displayVisits.map((v) => (
             <tr
               key={v.visit_id}
               className={

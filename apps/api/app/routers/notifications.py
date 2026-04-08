@@ -129,3 +129,30 @@ async def notify_study_change(
             "reason": payload.reason,
         },
     })
+
+# ── Overtime WebSocket Alert ──────────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class OvertimeAlertPayload(BaseModel):
+    clinic_id: str
+    area_name: str
+    patients_waiting: int
+
+@router.post(
+    "/doctor-overtime",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Trigger a WS alert when a doctor exceeds the estimated time",
+)
+async def notify_doctor_overtime(
+    payload: OvertimeAlertPayload,
+    _doctor_id: str = Depends(get_current_doctor_id),
+):
+    await broadcast_to_clinic(payload.clinic_id, {
+        "event": "doctor_overtime_alert",
+        "data": {
+            "area_name": payload.area_name,
+            "patients_waiting": payload.patients_waiting,
+            "message": f"El paciente actual ha excedido el tiempo estimado. Faltan {payload.patients_waiting} pacientes por pasar.",
+        },
+    })
