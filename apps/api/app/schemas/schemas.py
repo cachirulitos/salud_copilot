@@ -151,6 +151,25 @@ class CheckInResponse(BaseModel):
     )
 
 
+class VisitContextStepResponse(SequenceStepResponse):
+    """
+    One step as returned inside VisitContextResponse.
+
+    Extends SequenceStepResponse with `status` so the bot and dashboard
+    know whether a step is pending, currently being attended, or done.
+    """
+
+    status: str = Field(
+        ...,
+        description="Current step status: pending | in_progress | completed",
+        examples=["pending", "in_progress", "completed"],
+    )
+    position_in_queue: int | None = Field(
+        None,
+        description="0-indexed position in the waiting area queue. 0 means they are next.",
+    )
+
+
 class VisitContextResponse(BaseModel):
     """
     Response for GET /api/v1/visits/{visit_id}/context
@@ -160,16 +179,17 @@ class VisitContextResponse(BaseModel):
 
     visit_id: uuid.UUID = Field(..., description="UUID of the visit")
     patient_name: str = Field(..., description="Full name of the patient")
-    current_step: SequenceStepResponse = Field(
-        ..., description="The step the patient is currently at"
+    current_step: Optional[VisitContextStepResponse] = Field(
+        None, description="The step the patient is currently waiting for or doing"
     )
-    remaining_steps: list[SequenceStepResponse] = Field(
+    remaining_steps: list[VisitContextStepResponse] = Field(
         ..., description="Steps not yet started, in order"
     )
     total_estimated_minutes: int = Field(
         ..., description="Total remaining estimated time in minutes"
     )
 
+# ── General schemas ───────────────────────────────────────────────────────────
 
 class OccupancyResponse(BaseModel):
     """
@@ -233,22 +253,6 @@ class ErrorResponse(BaseModel):
         description="Machine-readable error code in SCREAMING_SNAKE_CASE",
         examples=["VISIT_NOT_FOUND", "AREA_NOT_FOUND", "INVALID_PHONE_NUMBER"],
     )
-
-
-class VisitContextStepResponse(SequenceStepResponse):
-    """
-    One step as returned inside VisitContextResponse.
-
-    Extends SequenceStepResponse with `status` so the bot and dashboard
-    know whether a step is pending, currently being attended, or done.
-    """
-
-    status: str = Field(
-        ...,
-        description="Current step status: pending | in_progress | completed",
-        examples=["pending", "in_progress", "completed"],
-    )
-
 
 # ── Doctor schemas ────────────────────────────────────────────────────────────
 

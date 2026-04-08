@@ -131,7 +131,21 @@ export function useDashboardData(
         break;
       }
       case "checkin_created":
-        setActiveVisits((prev) => [event.data, ...prev]);
+        if (event.data.is_transfer) {
+          setActiveVisits((prev) =>
+            prev.map((v) =>
+              v.visit_id === event.data.visit_id
+                ? { ...v, current_area_name: event.data.current_area }
+                : v
+            )
+          );
+        } else {
+          setActiveVisits((prev) => {
+            const exists = prev.find(v => v.visit_id === event.data.visit_id);
+            if (exists) return prev;
+            return [event.data, ...prev];
+          });
+        }
         break;
 
       case "visit_step_updated":

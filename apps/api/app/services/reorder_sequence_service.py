@@ -203,7 +203,9 @@ async def reorder_visit_sequence(
             {
                 "event": "checkin_created",
                 "data": {
+                    "visit_id": str(visit_id),
                     "current_area": new_area_name,
+                    "is_transfer": True,
                 }
             }
         )
