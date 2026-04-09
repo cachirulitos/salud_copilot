@@ -297,20 +297,19 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
                 select(Clinic).where(Clinic.id == area.clinic_id)
             )
             clinic = clinic_result.scalar_one_or_none()
-            historical_clinic_id = clinic.historical_ml_id if clinic and clinic.historical_ml_id else None
-            
-            if historical_clinic_id is not None:
-                base_ml_estimate = predictor.predict_wait_minutes(
-                    hour_of_day=now.hour,
-                    day_of_week=now.weekday(),
-                    study_type_raw_id=area.study_type,
-                    clinic_raw_id=historical_clinic_id,
-                    simultaneous_capacity=area.simultaneous_capacity,
-                    current_queue_length=effective_queue,
-                    has_appointment=request.has_appointment,
-                )
-                print(f"ML Base: {base_ml_estimate}", flush=True)
-                estimated_mins = base_ml_estimate
+            clinic_raw_id = clinic.historical_ml_id if (clinic and clinic.historical_ml_id) else str(area.clinic_id)
+
+            base_ml_estimate = predictor.predict_wait_minutes(
+                hour_of_day=now.hour,
+                day_of_week=now.weekday(),
+                study_type_raw_id=area.study_type,
+                clinic_raw_id=clinic_raw_id,
+                simultaneous_capacity=area.simultaneous_capacity,
+                current_queue_length=effective_queue,
+                has_appointment=request.has_appointment,
+            )
+            print(f"ML Base: {base_ml_estimate}", flush=True)
+            estimated_mins = base_ml_estimate
         
         # Priority 2: Formulas fallback
         if estimated_mins is None:
