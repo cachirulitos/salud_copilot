@@ -245,6 +245,21 @@ class Doctor(Base):
         return f"<Doctor id={self.id} employee_id={self.employee_id}>"
 
 
+class WaitTimeSnapshot(Base):
+    """Actual wait minutes recorded each time a step is completed — used for chart history."""
+    __tablename__ = "wait_time_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    clinic_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clinics.id"), nullable=False, index=True)
+    area_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("clinical_areas.id"), nullable=False)
+    area_name: Mapped[str] = mapped_column(String, nullable=False)
+    actual_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self) -> str:
+        return f"<WaitTimeSnapshot area={self.area_name} minutes={self.actual_minutes}>"
+
+
 class DoctorAlert(Base):
     __tablename__ = "doctor_alerts"
 

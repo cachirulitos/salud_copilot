@@ -100,6 +100,48 @@ async def broadcast_visit_step_updated(
         },
     )
 
+async def broadcast_patient_arriving(
+    clinic_id: str,
+    visit_id: uuid.UUID,
+    patient_name: str,
+    from_area: str,
+    to_area: str,
+    next_area_after: str | None,
+    estimated_wait_minutes: int,
+) -> None:
+    """Notify all dashboards that a patient is moving to the next area."""
+    await broadcast_to_clinic(
+        clinic_id,
+        {
+            "event": "patient_arriving",
+            "data": {
+                "visit_id": str(visit_id),
+                "patient_name": patient_name,
+                "from_area": from_area,
+                "to_area": to_area,
+                "next_area_after": next_area_after,
+                "estimated_wait_minutes": estimated_wait_minutes,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        },
+    )
+
+async def broadcast_wait_updated(clinic_id: str, area_id: str, area_name: str, new_wait_minutes: int) -> None:
+    await broadcast_to_clinic(clinic_id, {
+        "type": "wait_time_updated",
+        "area_id": area_id,
+        "area_name": area_name,
+        "wait_minutes": new_wait_minutes,
+    })
+
+
+async def broadcast_alert_resolved(clinic_id: str, alert_id: str) -> None:
+    await broadcast_to_clinic(clinic_id, {
+        "type": "alert_resolved",
+        "alert_id": alert_id,
+    })
+
+
 import asyncio
 
 async def broadcast_to_clinic(clinic_id: str, event: dict) -> None:

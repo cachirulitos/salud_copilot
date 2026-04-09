@@ -6,6 +6,31 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const CLINIC_ID = process.env.NEXT_PUBLIC_CLINIC_ID ?? "default";
 const POLL_MS = 15_000;
 
+function getAreaId(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("doctor_area_id");
+}
+
+export interface StepDetail {
+  order: number;
+  area_name: string;
+  status: "pending" | "in_progress" | "completed";
+  estimated_wait_minutes: number | null;
+  actual_wait_minutes: number | null;
+}
+
+export interface CompletedPatientEntry {
+  visit_id: string;
+  patient_name: string;
+  completed_at: string;
+  total_steps: number;
+}
+
+export interface CompletedToday {
+  count: number;
+  patients: CompletedPatientEntry[];
+}
+
 export interface DoctorPatient {
   visit_id: string;
   patient_name: string;
@@ -15,8 +40,9 @@ export interface DoctorPatient {
   estimated_wait_minutes: number | null;
   expected_consultation_minutes: number | null;
   elapsed_minutes: number | null;
-  is_current: boolean;
-  current_area_name: string | null;
+  coming_from_area: string | null;
+  next_area_after: string | null;
+  steps: StepDetail[];
 }
 
 export interface DoctorAlert {
@@ -33,6 +59,14 @@ export interface DoctorAlert {
 export function useDoctorData() {
   const [patients, setPatients] = useState<DoctorPatient[]>([]);
   const [alerts, setAlerts] = useState<DoctorAlert[]>([]);
+  const [completedToday, setCompletedToday] = useState<CompletedToday>({
+    count: 0,
+    patients: [],
+  });
+  const [waitTimeHistory, setWaitTimeHistory] = useState<{
+    labels: string[];
+    series: Record<string, number[]>;
+  }>({ labels: [], series: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,20 +80,54 @@ export function useDoctorData() {
   };
 
   const fetchAlerts = async () => {
+    const areaId = getAreaId();
+    const params = new URLSearchParams({
+      clinic_id: CLINIC_ID,
+      resolved: "false",
+    });
+    if (areaId) params.set("area_id", areaId);
     const res = await fetch(
-      `${API_URL}/api/v1/notifications/alerts?clinic_id=${CLINIC_ID}&resolved=false`,
+      `${API_URL}/api/v1/notifications/alerts?${params}`,
       { credentials: "include" },
     );
     if (!res.ok) return [];
     return res.json() as Promise<DoctorAlert[]>;
   };
 
+  const fetchCompletedToday = async (): Promise<CompletedToday> => {
+    const res = await fetch(`${API_URL}/api/v1/doctors/me/completed-today`, {
+      credentials: "include",
+    });
+    if (!res.ok) return { count: 0, patients: [] };
+    return res.json();
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/dashboard/${CLINIC_ID}/history`,
+        {
+          credentials: "include",
+        },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.labels && data.series) setWaitTimeHistory(data);
+    } catch {
+      // history is non-critical, ignore network errors
+    }
+  };
+
   const load = async () => {
     try {
-      const [p, a] = await Promise.all([fetchPatients(), fetchAlerts()]);
-      console.log(p);
+      const [p, a, c] = await Promise.all([
+        fetchPatients(),
+        fetchAlerts(),
+        fetchCompletedToday(),
+      ]);
       setPatients(p);
       setAlerts(a);
+      setCompletedToday(c);
       setError(null);
     } catch (e: any) {
       setError(e?.message ?? "unknown_error");
@@ -74,12 +142,26 @@ export function useDoctorData() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
   const advanceStep = async (visitId: string) => {
-    await fetch(`${API_URL}/api/v1/visits/${visitId}/advance-step`, {
-      method: "POST",
-      credentials: "include",
-    });
-    // Refresh immediately
+    try {
+      const res = await fetch(
+        `${API_URL}/api/v1/visits/${visitId}/advance-step`,
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.error("advance-step failed", res.status, body);
+      }
+    } catch (e) {
+      console.error("advance-step network error", e);
+    }
     await load();
   };
 
@@ -91,5 +173,36 @@ export function useDoctorData() {
     setAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };
 
-  return { patients, alerts, loading, error, advanceStep, resolveAlert, refreshData: load };
+  const queueSize = patients.filter((p) => p.step_status === "pending").length;
+  const inAttention = patients.filter(
+    (p) => p.step_status === "in_progress",
+  ).length;
+  const avgWait =
+    patients.length > 0
+      ? Math.round(
+          patients.reduce((s, p) => s + (p.estimated_wait_minutes ?? 0), 0) /
+            patients.length,
+        )
+      : 0;
+  const overtimeCount = alerts.filter(
+    (a) => a.alert_type === "overtime",
+  ).length;
+
+  const removeAlertLocally = (alertId: string) => {
+    setAlerts((prev) => prev.filter((a) => a.id !== alertId));
+  };
+
+  return {
+    patients,
+    alerts,
+    loading,
+    error,
+    advanceStep,
+    resolveAlert,
+    removeAlertLocally,
+    refreshData: load,
+    completedToday,
+    kpis: { queueSize, inAttention, avgWait, overtimeCount },
+    waitTimeHistory,
+  };
 }

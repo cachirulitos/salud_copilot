@@ -1,7 +1,7 @@
 import logging
 import uuid
-import random
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.models.models import (
     ClinicalArea,
     WaitTimeEstimate,
+    WaitTimeSnapshot,
     Visit,
     VisitStep,
     Patient,
@@ -136,40 +137,28 @@ async def get_dashboard_overview(clinic_id: uuid.UUID, db: AsyncSession = Depend
 
 @router.get("/{clinic_id}/history")
 async def get_dashboard_history(clinic_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    """
-    Returns simulated historical wait times for the last 60 minutes based on current data.
-    Generates 12 data points (1 every 5 minutes).
-    """
-    areas_result = await db.execute(
-        select(ClinicalArea).where(ClinicalArea.clinic_id == clinic_id, ClinicalArea.active == True)
+    """Returns actual wait time history from completed steps in the last 24 hours, bucketed by hour."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    rows_result = await db.execute(
+        select(WaitTimeSnapshot).where(
+            WaitTimeSnapshot.clinic_id == clinic_id,
+            WaitTimeSnapshot.recorded_at >= cutoff,
+        ).order_by(WaitTimeSnapshot.recorded_at)
     )
-    areas = areas_result.scalars().all()
-    
-    labels = ["55m", "50m", "45m", "40m", "35m", "30m", "25m", "20m", "15m", "10m", "5m", "ahora"]
-    series = {}
-    
-    for area in areas:
-        wt_result = await db.execute(
-            select(WaitTimeEstimate).where(WaitTimeEstimate.clinical_area_id == area.id)
-        )
-        wt = wt_result.scalar_one_or_none()
-        current_val = wt.estimated_minutes if wt else 15
-        
-        # Simulate history: slowly converge to current wait time with some noise
-        history = []
-        val = max(5, current_val + random.randint(-5, 5))
-        for _ in range(11):
-            history.append(val)
-            # random walk towards current_val
-            step = 1 if current_val > val else -1 if current_val < val else 0
-            val += step + random.choice([-1, 0, 1])
-            val = max(2, val)
-        
-        history.append(current_val)
-        series[area.name] = history
-        
-    return {
-        "labels": labels,
-        "series": series
-    }
+    snaps = list(rows_result.scalars().all())
+
+    buckets: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    for s in snaps:
+        hour_label = s.recorded_at.strftime("%H:00")
+        buckets[s.area_name][hour_label].append(s.actual_minutes)
+
+    all_hours = sorted({s.recorded_at.strftime("%H:00") for s in snaps})
+    series: dict[str, list] = {}
+    for area_name, hour_map in buckets.items():
+        series[area_name] = [
+            round(sum(hour_map[h]) / len(hour_map[h])) if h in hour_map else None
+            for h in all_hours
+        ]
+
+    return {"labels": all_hours, "series": series}
 
