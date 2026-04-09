@@ -63,6 +63,10 @@ async def _auto_advance_commit(step_id: uuid.UUID) -> None:
                 visit_result = await db.execute(select(VisitModel).where(VisitModel.id == step.visit_id))
                 visit = visit_result.scalar_one_or_none()
                 if visit:
+                    area_result = await db.execute(
+                        select(ClinicalArea).where(ClinicalArea.id == step.clinical_area_id)
+                    )
+                    area_obj = area_result.scalar_one_or_none()
                     await broadcast_to_clinic(str(visit.clinic_id), {
                         "event": "visit_step_updated",
                         "data": {
@@ -73,7 +77,7 @@ async def _auto_advance_commit(step_id: uuid.UUID) -> None:
                             "next_step": {
                                 "order": step.step_order,
                                 "area_id": str(step.clinical_area_id),
-                                "area_name": None,
+                                "area_name": area_obj.name if area_obj else None,
                                 "status": "in_progress",
                             },
                         },
