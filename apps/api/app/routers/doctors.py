@@ -125,33 +125,45 @@ async def get_my_patients(
 
     # Filter so a patient only appears in the doctor queue if this is ACTUALLY their current step
     steps = []
+    incoming_steps = []
     for step in all_potential_steps:
         earlier_uncompleted = await db.execute(
             select(VisitStep).where(
                 VisitStep.visit_id == step.visit_id,
                 VisitStep.step_order < step.step_order,
                 VisitStep.status != VisitStepStatus.COMPLETED
-            )
+            ).order_by(VisitStep.step_order.asc())
         )
-        if earlier_uncompleted.first() is None:
-            steps.append(step)
+        first_earlier = earlier_uncompleted.first()
+        if first_earlier is None:
+            steps.append((step, True, None))
+        else:
+            earlier_step = first_earlier[0]
+            area_res = await db.execute(select(ClinicalArea).where(ClinicalArea.id == earlier_step.clinical_area_id))
+            area_obj = area_res.scalar_one_or_none()
+            area_name = area_obj.name if area_obj else "Otra área"
+            incoming_steps.append((step, False, area_name))
 
     # ── Automágico: Call the next patient automatically if idle ──
-    has_in_progress = any(s.status == VisitStepStatus.IN_PROGRESS for s in steps)
-    if not has_in_progress and steps:
+    # Only applies to 'current' steps
+    actual_steps = [s for s, is_curr, _ in steps if is_curr]
+    has_in_progress = any(s.status == VisitStepStatus.IN_PROGRESS for s in actual_steps)
+    if not has_in_progress and actual_steps:
         # The doctor is completely free. Pop the first pending!
-        first_pending = steps[0]
+        first_pending = actual_steps[0]
         if first_pending.status == VisitStepStatus.PENDING:
             first_pending.status = VisitStepStatus.IN_PROGRESS
             first_pending.started_at = datetime.now(timezone.utc)
             await db.commit()
             # No need to refetch, object is updated in memory
 
+    # Combine both groups
+    all_steps = steps + incoming_steps
 
     # Count total steps per visit
     total_steps_result = await db.execute(
         select(VisitStep.visit_id, func.count(VisitStep.id).label("total"))
-        .where(VisitStep.visit_id.in_([s.visit_id for s in steps]))
+        .where(VisitStep.visit_id.in_([s[0].visit_id for s in all_steps]))
         .group_by(VisitStep.visit_id)
     )
     total_steps_map: dict[uuid.UUID, int] = {
@@ -174,7 +186,7 @@ async def get_my_patients(
     }
     expected_consultation_minutes = BASE_WAIT_TIMES.get(area.study_type, 15)
 
-    for step in steps:
+    for step, is_curr, curr_area in all_steps:
         visit_result = await db.execute(select(Visit).where(Visit.id == step.visit_id))
         visit = visit_result.scalar_one_or_none()
         if visit is None:
@@ -202,10 +214,15 @@ async def get_my_patients(
                 estimated_wait_minutes=step.estimated_wait_minutes,
                 expected_consultation_minutes=expected_consultation_minutes,
                 elapsed_minutes=elapsed,
+                is_current=is_curr,
+                current_area_name=curr_area,
             )
         )
 
-    # Ensure in-progress patient appears at the top
-    patients.sort(key=lambda p: (0 if p.step_status == VisitStepStatus.IN_PROGRESS.value else 1))
+    # Sort: In progress first, then current pending, then incoming patients
+    patients.sort(key=lambda p: (
+        0 if p.step_status == VisitStepStatus.IN_PROGRESS.value else 1,
+        0 if p.is_current else 1
+    ))
 
     return patients

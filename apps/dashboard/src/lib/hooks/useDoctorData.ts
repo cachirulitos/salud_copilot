@@ -15,6 +15,8 @@ export interface DoctorPatient {
   estimated_wait_minutes: number | null;
   expected_consultation_minutes: number | null;
   elapsed_minutes: number | null;
+  is_current: boolean;
+  current_area_name: string | null;
 }
 
 export interface DoctorAlert {

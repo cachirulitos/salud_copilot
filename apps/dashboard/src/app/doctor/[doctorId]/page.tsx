@@ -288,81 +288,136 @@ export default function DoctorDashboardPage({
 
         {/* ── Patient list + Notifications ─────────────────────────────── */}
         <div className="grid grid-cols-3 gap-4">
-          {/* Patient table */}
-          <div className="col-span-2 space-y-3">
-            <h2 className="text-xs font-semibold text-content-secondary uppercase tracking-wider">
-              Pacientes en tu área
-            </h2>
+          {/* Patients section */}
+          <div className="col-span-2 space-y-8">
+            
+            {/* Active Patients */}
+            <div className="space-y-3">
+              <h2 className="text-xs font-semibold text-content-secondary uppercase tracking-wider">
+                Pacientes en tu área
+              </h2>
 
-            {patients.length === 0 ? (
-              <div className="bg-surface-card border border-surface-border rounded-lg p-8 text-center text-sm text-content-secondary shadow-sm">
-                No hay pacientes activos en tu área ahora mismo
-              </div>
-            ) : (
-              <div className="bg-surface-card border border-surface-border rounded-lg overflow-hidden shadow-sm">
-                <table className="min-w-full divide-y divide-surface-border">
-                  <thead className="bg-surface-base">
-                    <tr>
-                      {[
-                        "Paciente",
-                        "Estado",
-                        "Est. / Transcurrido",
-                        "Paso",
-                        "",
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          className="px-5 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-border bg-surface-card">
-                    {patients.map((p) => {
-                      const isOvertime =
-                        p.elapsed_minutes !== null &&
-                        p.expected_consultation_minutes !== null &&
-                        p.elapsed_minutes > p.expected_consultation_minutes + 5;
-                      return (
-                        <tr
-                          key={p.visit_id}
-                          className={isOvertime ? "bg-red-50" : ""}>
+              {patients.filter(p => p.is_current).length === 0 ? (
+                <div className="bg-surface-card border border-surface-border rounded-lg p-8 text-center text-sm text-content-secondary shadow-sm">
+                  No hay pacientes activos en tu área ahora mismo
+                </div>
+              ) : (
+                <div className="bg-surface-card border border-surface-border rounded-lg overflow-hidden shadow-sm">
+                  <table className="min-w-full divide-y divide-surface-border">
+                    <thead className="bg-surface-base">
+                      <tr>
+                        {[
+                          "Paciente",
+                          "Estado",
+                          "Est. / Transcurrido",
+                          "Paso",
+                          "",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            className="px-5 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-border bg-surface-card">
+                      {patients.filter(p => p.is_current).map((p) => {
+                        const isOvertime =
+                          p.elapsed_minutes !== null &&
+                          p.expected_consultation_minutes !== null &&
+                          p.elapsed_minutes > p.expected_consultation_minutes + 5;
+                        return (
+                          <tr
+                            key={p.visit_id}
+                            className={isOvertime ? "bg-red-50" : ""}>
+                            <td className="px-5 py-4 text-sm font-semibold text-content-primary whitespace-nowrap">
+                              {p.patient_name}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap">
+                              <StepBadge status={p.step_status} />
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary">
+                              <span className="tabular-nums">
+                                {p.expected_consultation_minutes ?? "—"} min
+                              </span>
+                              {" / "}
+                              <ElapsedBadge
+                                elapsed={p.elapsed_minutes}
+                                estimated={p.expected_consultation_minutes}
+                              />
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary tabular-nums">
+                              {p.step_order}/{p.total_steps}
+                            </td>
+                            <td className="px-5 py-4 whitespace-nowrap text-right">
+                              <button
+                                id={`advance-${p.visit_id}`}
+                                disabled={p.step_status !== "in_progress"}
+                                onClick={() => advanceStep(p.visit_id)}
+                                className="text-xs font-medium bg-brand-green hover:bg-brand-green/90 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
+                                Avanzar paso
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Incoming Patients */}
+            <div className="space-y-3">
+              <h2 className="text-xs font-semibold text-content-secondary uppercase tracking-wider">
+                Próximos pacientes (En otra área)
+              </h2>
+
+              {patients.filter(p => !p.is_current).length === 0 ? (
+                <div className="bg-surface-card border border-surface-border rounded-lg p-6 text-center text-sm text-content-secondary shadow-sm">
+                  Ningún paciente está proyectado para llegar próximamente
+                </div>
+              ) : (
+                <div className="bg-surface-card border border-surface-border rounded-lg overflow-hidden shadow-sm opacity-80">
+                  <table className="min-w-full divide-y divide-surface-border">
+                    <thead className="bg-surface-base">
+                      <tr>
+                        {[
+                          "Paciente",
+                          "Ubicación actual",
+                          "Paso futuro",
+                        ].map((h) => (
+                          <th
+                            key={h}
+                            className="px-5 py-3 text-left text-xs font-medium text-content-secondary uppercase tracking-wider">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-border bg-surface-card">
+                      {patients.filter(p => !p.is_current).map((p) => (
+                        <tr key={p.visit_id}>
                           <td className="px-5 py-4 text-sm font-semibold text-content-primary whitespace-nowrap">
                             {p.patient_name}
                           </td>
-                          <td className="px-5 py-4 whitespace-nowrap">
-                            <StepBadge status={p.step_status} />
-                          </td>
                           <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary">
-                            <span className="tabular-nums">
-                              {p.expected_consultation_minutes ?? "—"} min
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded-md font-medium text-gray-600">
+                              <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+                              {p.current_area_name || "En espera"}
                             </span>
-                            {" / "}
-                            <ElapsedBadge
-                              elapsed={p.elapsed_minutes}
-                              estimated={p.expected_consultation_minutes}
-                            />
                           </td>
                           <td className="px-5 py-4 whitespace-nowrap text-xs text-content-secondary tabular-nums">
-                            {p.step_order}/{p.total_steps}
-                          </td>
-                          <td className="px-5 py-4 whitespace-nowrap text-right">
-                            <button
-                              id={`advance-${p.visit_id}`}
-                              disabled={p.step_status !== "in_progress"}
-                              onClick={() => advanceStep(p.visit_id)}
-                              className="text-xs font-medium bg-brand-green hover:bg-brand-green/90 disabled:opacity-30 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg transition-colors">
-                              Avanzar paso
-                            </button>
+                            Será el paso {p.step_order} de {p.total_steps}
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Notifications panel */}

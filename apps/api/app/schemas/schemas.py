@@ -279,6 +279,17 @@ class DoctorPatientResponse(BaseModel):
     estimated_wait_minutes: Optional[int]
     expected_consultation_minutes: Optional[int]
     elapsed_minutes: Optional[int]
+    is_current: bool = True
+    current_area_name: Optional[str] = None
+
+
+class AreaQueueShift(BaseModel):
+    """Represents a patient's shift in the public area screen."""
+    visit_id: uuid.UUID
+    turn_number: str
+    patient_name: str
+    status: str
+    step_order: int
 
 
 # ── Alert schemas ─────────────────────────────────────────────────────────────
