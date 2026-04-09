@@ -14,8 +14,6 @@ export default function AreasPage() {
     setAlertCount,
   );
 
-  console.log(areas);
-
   return (
     <div className="space-y-6">
       <div>
