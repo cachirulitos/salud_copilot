@@ -8,11 +8,11 @@ import uuid
 from datetime import datetime, timezone, date
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Response, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.auth import (
     verify_password,
     create_access_token,
@@ -45,6 +45,21 @@ BASE_WAIT_TIMES = {
     "densitometria": 15,
     "tomografia": 25,
 }
+
+
+async def _auto_advance_commit(step_id: uuid.UUID) -> None:
+    """Persist the auto-advance of a pending step to in_progress."""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(VisitStep).where(VisitStep.id == step_id))
+            step = result.scalar_one_or_none()
+            if step and step.status == VisitStepStatus.PENDING:
+                step.status = VisitStepStatus.IN_PROGRESS
+                step.started_at = datetime.now(timezone.utc)
+                await db.commit()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("_auto_advance_commit error")
 
 
 def _predict_consultation_minutes(
@@ -138,6 +153,7 @@ async def doctor_logout(response: Response):
     summary="Get active patients in the authenticated doctor's area",
 )
 async def get_my_patients(
+    background_tasks: BackgroundTasks,
     doctor_id: str = Depends(get_current_doctor_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -157,33 +173,42 @@ async def get_my_patients(
             VisitStep.clinical_area_id == doctor.clinical_area_id,
             VisitStep.status.in_([VisitStepStatus.PENDING, VisitStepStatus.IN_PROGRESS]),
         )
-        .order_by(Visit.created_at.asc()) # Using Visit created_at to keep chronological order
+        .order_by(Visit.created_at.asc())
     )
     all_potential_steps = list(steps_result.scalars().all())
 
-    # Filter so a patient only appears in the doctor queue if this is ACTUALLY their current step
+    if not all_potential_steps:
+        return []
+
+    # Batch-load all visit steps for these visits in one query to check blocking
+    candidate_visit_ids = list({s.visit_id for s in all_potential_steps})
+    all_visit_steps_result = await db.execute(
+        select(VisitStep).where(VisitStep.visit_id.in_(candidate_visit_ids))
+    )
+    all_visit_steps_by_visit: dict[uuid.UUID, list[VisitStep]] = {}
+    for vs in all_visit_steps_result.scalars().all():
+        all_visit_steps_by_visit.setdefault(vs.visit_id, []).append(vs)
+
+    # Filter so a patient only appears if this is ACTUALLY their current step
     steps = []
     for step in all_potential_steps:
-        earlier_uncompleted = await db.execute(
-            select(VisitStep).where(
-                VisitStep.visit_id == step.visit_id,
-                VisitStep.step_order < step.step_order,
-                VisitStep.status != VisitStepStatus.COMPLETED
-            )
+        visit_steps = all_visit_steps_by_visit.get(step.visit_id, [])
+        has_earlier_uncompleted = any(
+            s.step_order < step.step_order and s.status != VisitStepStatus.COMPLETED
+            for s in visit_steps
         )
-        if earlier_uncompleted.first() is None:
+        if not has_earlier_uncompleted:
             steps.append(step)
 
     # ── Automágico: Call the next patient automatically if idle ──
     has_in_progress = any(s.status == VisitStepStatus.IN_PROGRESS for s in steps)
     if not has_in_progress and steps:
-        # The doctor is completely free. Pop the first pending!
         first_pending = steps[0]
         if first_pending.status == VisitStepStatus.PENDING:
             first_pending.status = VisitStepStatus.IN_PROGRESS
             first_pending.started_at = datetime.now(timezone.utc)
-            await db.commit()
-            # No need to refetch, object is updated in memory
+            # Commit in background so it doesn't block the response
+            background_tasks.add_task(_auto_advance_commit, first_pending.id)
 
 
     # Count total steps per visit
@@ -196,11 +221,12 @@ async def get_my_patients(
         row.visit_id: row.total for row in total_steps_result
     }
 
-    patients: list[DoctorPatientResponse] = []
-
     area_result = await db.execute(select(ClinicalArea).where(ClinicalArea.id == doctor.clinical_area_id))
     area = area_result.scalar_one()
     queue_length = len(steps)
+
+    # Cache ML predictions (only varies by has_appointment for same area+queue)
+    _prediction_cache: dict[bool, int] = {}
 
     all_areas_result = await db.execute(
         select(ClinicalArea).where(ClinicalArea.clinic_id == area.clinic_id)
@@ -209,16 +235,23 @@ async def get_my_patients(
         a.id: a.name for a in all_areas_result.scalars().all()
     }
 
+    # Batch-load all visits and patients in 2 queries instead of 2N
+    visit_ids = [s.visit_id for s in steps]
+    visits_result = await db.execute(select(Visit).where(Visit.id.in_(visit_ids)))
+    visit_map: dict[uuid.UUID, Visit] = {v.id: v for v in visits_result.scalars().all()}
+
+    patient_ids = [v.patient_id for v in visit_map.values()]
+    patients_result = await db.execute(select(Patient).where(Patient.id.in_(patient_ids)))
+    patient_map: dict[uuid.UUID, Patient] = {p.id: p for p in patients_result.scalars().all()}
+
+    patients: list[DoctorPatientResponse] = []
+
     for step in steps:
-        visit_result = await db.execute(select(Visit).where(Visit.id == step.visit_id))
-        visit = visit_result.scalar_one_or_none()
+        visit = visit_map.get(step.visit_id)
         if visit is None:
             continue
 
-        patient_result = await db.execute(
-            select(Patient).where(Patient.id == visit.patient_id)
-        )
-        patient = patient_result.scalar_one_or_none()
+        patient = patient_map.get(visit.patient_id)
         patient_name = patient.full_name if patient else "Desconocido"
 
         elapsed: Optional[int] = None
@@ -227,15 +260,16 @@ async def get_my_patients(
                 (datetime.now(timezone.utc) - step.started_at).total_seconds() / 60
             )
 
-        expected_consultation_minutes = _predict_consultation_minutes(area, visit, queue_length)
+        appt = visit.has_appointment
+        if appt not in _prediction_cache:
+            _prediction_cache[appt] = _predict_consultation_minutes(area, visit, queue_length)
+        expected_consultation_minutes = _prediction_cache[appt]
 
-        # Find previous completed step (coming from) and next pending step (going to)
-        all_steps_result = await db.execute(
-            select(VisitStep)
-            .where(VisitStep.visit_id == step.visit_id)
-            .order_by(VisitStep.step_order)
+        # Use already-loaded visit steps (no extra query)
+        all_steps = sorted(
+            all_visit_steps_by_visit.get(step.visit_id, []),
+            key=lambda s: s.step_order,
         )
-        all_steps = list(all_steps_result.scalars().all())
 
         coming_from_area: Optional[str] = None
         next_area_after: Optional[str] = None
@@ -309,22 +343,37 @@ async def get_completed_today(
     )
     completed_steps = list(steps_result.scalars().all())
 
+    if not completed_steps:
+        return CompletedTodayResponse(count=0, patients=[])
+
+    visit_ids = list({s.visit_id for s in completed_steps})
+
+    # Batch load visits, patients, and step counts
+    visits_res = await db.execute(select(Visit).where(Visit.id.in_(visit_ids)))
+    visit_map = {v.id: v for v in visits_res.scalars().all()}
+
+    patient_ids = [v.patient_id for v in visit_map.values()]
+    patients_res = await db.execute(select(Patient).where(Patient.id.in_(patient_ids)))
+    patient_map = {p.id: p for p in patients_res.scalars().all()}
+
+    totals_res = await db.execute(
+        select(VisitStep.visit_id, func.count(VisitStep.id).label("total"))
+        .where(VisitStep.visit_id.in_(visit_ids))
+        .group_by(VisitStep.visit_id)
+    )
+    totals_map = {row.visit_id: row.total for row in totals_res}
+
     entries: list[CompletedPatientEntry] = []
     for s in completed_steps:
-        visit_res = await db.execute(select(Visit).where(Visit.id == s.visit_id))
-        visit = visit_res.scalar_one_or_none()
+        visit = visit_map.get(s.visit_id)
         if not visit:
             continue
-        patient_res = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
-        patient = patient_res.scalar_one_or_none()
-        total_res = await db.execute(
-            select(func.count(VisitStep.id)).where(VisitStep.visit_id == s.visit_id)
-        )
+        patient = patient_map.get(visit.patient_id)
         entries.append(CompletedPatientEntry(
             visit_id=s.visit_id,
             patient_name=patient.full_name if patient else "Desconocido",
             completed_at=s.completed_at,
-            total_steps=total_res.scalar_one(),
+            total_steps=totals_map.get(s.visit_id, 1),
         ))
 
     return CompletedTodayResponse(count=len(entries), patients=entries)

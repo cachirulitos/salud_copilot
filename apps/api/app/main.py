@@ -13,9 +13,18 @@ from app.routers import visits, admin, areas, patients, visit_steps, notificatio
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Eagerly load ML predictor so the success/fail log appears at startup
+    # Eagerly load ML predictor and warm it with a dummy prediction
     from app.core.predictor_client import get_predictor
-    get_predictor()
+    predictor = get_predictor()
+    if predictor is not None:
+        try:
+            predictor.predict_wait_minutes(
+                hour_of_day=12, day_of_week=2, study_type_raw_id="warmup",
+                clinic_raw_id="warmup", simultaneous_capacity=1,
+                current_queue_length=1, has_appointment=False,
+            )
+        except Exception:
+            pass  # warmup failed, no big deal — model will load on first real call
     from app.services.step_monitor_service import run_step_monitor
     asyncio.create_task(run_step_monitor(interval_seconds=60))
     from app.services.retraining_service import run_retraining_monitor
