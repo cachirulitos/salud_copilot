@@ -147,17 +147,34 @@ async def check_and_retrain(threshold_rmse: float = 8.0) -> None:
             return
 
         logger.info("retraining_service: training on %d rows", len(df))
+        logger.info("retraining_service: dtypes\n%s", df.dtypes.to_string())
+        logger.info("retraining_service: nulls\n%s", df.isnull().sum().to_string())
 
         from sklearn.ensemble import RandomForestRegressor
+
+        # Encode string columns to integers before fitting
+        study_encoding = {v: i for i, v in enumerate(df["study_type_id"].unique())}
+        clinic_encoding = {v: i for i, v in enumerate(df["clinic_id"].unique())}
+        df = df.copy()
+        df["study_type_id"] = df["study_type_id"].map(study_encoding)
+        df["clinic_id"] = df["clinic_id"].map(clinic_encoding)
+
+        # Coerce all feature columns to numeric and drop any remaining nulls
+        for col in FEATURE_COLUMNS:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=FEATURE_COLUMNS + ["waiting_time_minutes"])
+
+        if len(df) < 50:
+            logger.warning(
+                "retraining_service: insufficient training data after cleaning (%d rows), skipping", len(df)
+            )
+            return
 
         X = df[FEATURE_COLUMNS]
         y = df["waiting_time_minutes"]
         new_model = RandomForestRegressor(**HYPERPARAMETERS)
         new_model.fit(X, y)
 
-        # Rebuild encoding maps using the raw string/uuid keys from this retrain window
-        study_encoding = {v: i for i, v in enumerate(df["study_type_id"].unique())}
-        clinic_encoding = {v: i for i, v in enumerate(df["clinic_id"].unique())}
         new_encoding_maps = {"study_type": study_encoding, "clinic": clinic_encoding}
 
         save_artifacts(new_model, new_encoding_maps, MODEL_DIR)
@@ -165,6 +182,12 @@ async def check_and_retrain(threshold_rmse: float = 8.0) -> None:
 
         predictor.model = new_model
         predictor.encoding_maps = new_encoding_maps
+        predictor._study_median_cache = {}
+
+        # Reload singleton so the new artifacts are picked up cleanly
+        import app.core.predictor_client as _pc
+        _pc._predictor = None
+        predictor = _pc.get_predictor()
 
         async with AsyncSessionLocal() as db:
             rmse_after = await calculate_rmse(db, predictor)

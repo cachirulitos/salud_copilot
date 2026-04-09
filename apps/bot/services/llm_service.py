@@ -8,7 +8,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-2.5-flash"
-MAX_OUTPUT_TOKENS = 200
+MAX_OUTPUT_TOKENS = 800
 
 SYSTEM_PROMPT = (
     "Eres SaludCopilot, asistente del paciente en clínicas Salud Digna. "
@@ -20,7 +20,7 @@ SYSTEM_PROMPT = (
     "- Si te preguntan sobre resultados, responde ÚNICAMENTE: "
     "'Para interpretar tus resultados, consulta con un médico.'\n"
     "- Responde SIEMPRE en español.\n"
-    "- Sé breve, cálido y claro. Máximo 3 oraciones por respuesta.\n\n"
+    "- Sé cálido, claro y tan detallado como el paciente necesite.\n\n"
     "Contexto actual del paciente:\n{context_json}"
 )
 
