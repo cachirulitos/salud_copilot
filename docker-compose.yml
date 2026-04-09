@@ -13,8 +13,6 @@
 #   - bot         → uvicorn --reload  en :8001
 #   - dashboard   → bun dev           en :3000
 #
-# Lo que corre local (fuera de Docker):
-#   - cv        → requiere acceso a webcam, no puede correr en contenedor
 # ─────────────────────────────────────────────────────────────────────────
 
 services:

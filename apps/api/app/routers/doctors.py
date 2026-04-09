@@ -26,11 +26,46 @@ from app.models.models import (
     VisitStep,
     VisitStepStatus,
 )
+from app.core.predictor_client import get_predictor
 from app.schemas.schemas import (
     DoctorLoginRequest,
     DoctorLoginResponse,
     DoctorPatientResponse,
 )
+
+BASE_WAIT_TIMES = {
+    "laboratorio": 15,
+    "ultrasonido": 20,
+    "rayos_x": 12,
+    "electrocardiograma": 8,
+    "papanicolaou": 10,
+    "densitometria": 15,
+    "tomografia": 25,
+}
+
+
+def _predict_consultation_minutes(
+    area: ClinicalArea,
+    visit: Visit,
+    queue_length: int,
+) -> int:
+    """Return ML-predicted wait or fall back to BASE_WAIT_TIMES."""
+    predictor = get_predictor()
+    if predictor is not None:
+        now = datetime.now(timezone.utc)
+        try:
+            return predictor.predict_wait_minutes(
+                hour_of_day=now.hour,
+                day_of_week=now.weekday(),
+                study_type_raw_id=area.study_type,
+                clinic_raw_id=str(area.clinic_id),
+                simultaneous_capacity=area.simultaneous_capacity,
+                current_queue_length=queue_length,
+                has_appointment=visit.has_appointment,
+            )
+        except Exception:
+            pass
+    return BASE_WAIT_TIMES.get(area.study_type, 15)
 
 router = APIRouter()
 
@@ -159,20 +194,10 @@ async def get_my_patients(
     }
 
     patients: list[DoctorPatientResponse] = []
-    
-    # Calculate Expected Consultation Time
+
     area_result = await db.execute(select(ClinicalArea).where(ClinicalArea.id == doctor.clinical_area_id))
     area = area_result.scalar_one()
-    BASE_WAIT_TIMES = {
-        "laboratorio": 15,
-        "ultrasonido": 20,
-        "rayos_x": 12,
-        "electrocardiograma": 8,
-        "papanicolaou": 10,
-        "densitometria": 15,
-        "tomografia": 25,
-    }
-    expected_consultation_minutes = BASE_WAIT_TIMES.get(area.study_type, 15)
+    queue_length = len(steps)
 
     for step in steps:
         visit_result = await db.execute(select(Visit).where(Visit.id == step.visit_id))
@@ -191,6 +216,8 @@ async def get_my_patients(
             elapsed = int(
                 (datetime.now(timezone.utc) - step.started_at).total_seconds() / 60
             )
+
+        expected_consultation_minutes = _predict_consultation_minutes(area, visit, queue_length)
 
         patients.append(
             DoctorPatientResponse(

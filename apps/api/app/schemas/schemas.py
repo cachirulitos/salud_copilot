@@ -53,20 +53,6 @@ class CheckInRequest(BaseModel):
     )
 
 
-class OccupancyUpdateRequest(BaseModel):
-    """
-    POST /api/v1/areas/{area_id}/occupancy
-
-    Published by the CV worker after each camera frame analysis.
-    people_count is the number of people detected inside the area ROI.
-    """
-
-    people_count: int = Field(
-        ..., ge=0, description="Number of people counted inside the area ROI"
-    )
-    timestamp: datetime = Field(
-        ..., description="ISO8601 timestamp of the camera reading"
-    )
 
 
 class AdvanceStepRequest(BaseModel):
@@ -191,18 +177,6 @@ class VisitContextResponse(BaseModel):
 
 # ── General schemas ───────────────────────────────────────────────────────────
 
-class OccupancyResponse(BaseModel):
-    """
-    Response for POST /api/v1/areas/{area_id}/occupancy
-
-    Returns the updated wait time estimate after processing the CV reading.
-    """
-
-    wait_time_estimate_minutes: int = Field(
-        ..., description="Updated wait time estimate for this area in minutes"
-    )
-
-
 class AdvanceStepStepResponse(BaseModel):
     order: int
     area_name: str
@@ -232,7 +206,7 @@ class WaitTimeEstimateResponse(BaseModel):
         ..., description="Number of patients currently waiting in this area"
     )
     people_in_area: int = Field(
-        ..., description="Physical people count from CV worker (may be 0 if CV is offline)"
+        ..., description="Physical people count in the area"
     )
     updated_at: datetime = Field(
         ..., description="Timestamp of the last update to this estimate"

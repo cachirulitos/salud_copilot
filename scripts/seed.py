@@ -85,7 +85,6 @@ async def seed():
         print(f"AREA_{area['study_type'].upper()}_ID={area['id']}")
     print("\nCopy these values to:")
     print("  apps/dashboard/.env.local → NEXT_PUBLIC_CLINIC_ID")
-    print("  apps/cv/.env → CAMERA_TO_AREA_MAPPING")
     print("========================\n")
 
     await engine.dispose()
