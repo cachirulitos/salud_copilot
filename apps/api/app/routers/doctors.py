@@ -50,6 +50,8 @@ BASE_WAIT_TIMES = {
 async def _auto_advance_commit(step_id: uuid.UUID) -> None:
     """Persist the auto-advance of a pending step to in_progress."""
     try:
+        from app.routers.dashboard_ws import broadcast_to_clinic
+        from app.models.models import Visit as VisitModel
         async with AsyncSessionLocal() as db:
             result = await db.execute(select(VisitStep).where(VisitStep.id == step_id))
             step = result.scalar_one_or_none()
@@ -57,6 +59,25 @@ async def _auto_advance_commit(step_id: uuid.UUID) -> None:
                 step.status = VisitStepStatus.IN_PROGRESS
                 step.started_at = datetime.now(timezone.utc)
                 await db.commit()
+                # Fetch clinic_id for broadcast
+                visit_result = await db.execute(select(VisitModel).where(VisitModel.id == step.visit_id))
+                visit = visit_result.scalar_one_or_none()
+                if visit:
+                    await broadcast_to_clinic(str(visit.clinic_id), {
+                        "event": "visit_step_updated",
+                        "data": {
+                            "visit_id": str(step.visit_id),
+                            "ticket_number": visit.ticket_number or "",
+                            "visit_status": "in_progress",
+                            "completed_step": None,
+                            "next_step": {
+                                "order": step.step_order,
+                                "area_id": str(step.clinical_area_id),
+                                "area_name": None,
+                                "status": "in_progress",
+                            },
+                        },
+                    })
     except Exception:
         import logging
         logging.getLogger(__name__).exception("_auto_advance_commit error")
@@ -135,6 +156,7 @@ async def doctor_login(
         full_name=doctor.full_name,
         clinical_area_id=doctor.clinical_area_id,
         clinical_area_name=area.name,
+        token=token,
     )
 
 
@@ -260,10 +282,7 @@ async def get_my_patients(
                 (datetime.now(timezone.utc) - step.started_at).total_seconds() / 60
             )
 
-        appt = visit.has_appointment
-        if appt not in _prediction_cache:
-            _prediction_cache[appt] = _predict_consultation_minutes(area, visit, queue_length)
-        expected_consultation_minutes = _prediction_cache[appt]
+        expected_consultation_minutes = step.estimated_wait_minutes or BASE_WAIT_TIMES.get(area.study_type, 15)
 
         # Use already-loaded visit steps (no extra query)
         all_steps = sorted(

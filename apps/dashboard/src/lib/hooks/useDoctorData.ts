@@ -11,6 +11,12 @@ function getAreaId(): string | null {
   return localStorage.getItem("doctor_area_id");
 }
 
+function authHeaders(): HeadersInit {
+  if (typeof window === "undefined") return {};
+  const token = localStorage.getItem("doctor_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export interface StepDetail {
   order: number;
   area_name: string;
@@ -66,7 +72,7 @@ export function useDoctorData() {
 
   const fetchPatients = async () => {
     const res = await fetch(`${API_URL}/api/v1/doctors/me/patients`, {
-      credentials: "include",
+      headers: authHeaders(),
     });
     if (res.status === 401) throw new Error("not_authenticated");
     if (!res.ok) throw new Error("failed_to_fetch_patients");
@@ -79,7 +85,7 @@ export function useDoctorData() {
     if (areaId) params.set("area_id", areaId);
     const res = await fetch(
       `${API_URL}/api/v1/notifications/alerts?${params}`,
-      { credentials: "include" },
+      { headers: authHeaders() },
     );
     if (!res.ok) return [];
     return res.json() as Promise<DoctorAlert[]>;
@@ -87,7 +93,7 @@ export function useDoctorData() {
 
   const fetchCompletedToday = async (): Promise<CompletedToday> => {
     const res = await fetch(`${API_URL}/api/v1/doctors/me/completed-today`, {
-      credentials: "include",
+      headers: authHeaders(),
     });
     if (!res.ok) return { count: 0, patients: [] };
     return res.json();
@@ -96,7 +102,7 @@ export function useDoctorData() {
   const fetchHistory = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/dashboard/${CLINIC_ID}/history`, {
-        credentials: "include",
+        headers: authHeaders(),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -134,7 +140,7 @@ export function useDoctorData() {
     try {
       const res = await fetch(`${API_URL}/api/v1/visits/${visitId}/advance-step`, {
         method: "POST",
-        credentials: "include",
+        headers: authHeaders(),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -149,7 +155,6 @@ export function useDoctorData() {
   const resolveAlert = async (alertId: string) => {
     await fetch(`${API_URL}/api/v1/notifications/alerts/${alertId}/resolve`, {
       method: "POST",
-      credentials: "include",
     });
     setAlerts((prev) => prev.filter((a) => a.id !== alertId));
   };

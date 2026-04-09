@@ -21,8 +21,8 @@ export default function DoctorLoginPage() {
       const res = await fetch(`${API_URL}/api/v1/doctors/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ employee_id: employeeId, password }),
+        credentials: "omit",
       });
 
       if (!res.ok) {
@@ -36,6 +36,7 @@ export default function DoctorLoginPage() {
       localStorage.setItem("doctor_name", data.full_name);
       localStorage.setItem("doctor_area_id", data.clinical_area_id);
       localStorage.setItem("doctor_area_name", data.clinical_area_name);
+      localStorage.setItem("doctor_token", data.token);
 
       router.push(`/doctor/${data.doctor_id}`);
     } catch {

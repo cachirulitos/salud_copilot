@@ -180,7 +180,7 @@ export function useDashboardData(
     if (!clinicId) return;
 
     // Fetch initial history
-    fetch(`http://localhost:8000/api/v1/dashboard/${clinicId}/history`)
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/dashboard/${clinicId}/history`)
       .then((r) => r.json())
       .then((data) => {
         if (data.labels && data.series) {

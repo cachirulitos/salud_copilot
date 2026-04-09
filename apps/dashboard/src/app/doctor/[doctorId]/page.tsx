@@ -245,7 +245,7 @@ export default function DoctorDashboardPage({
 
   useEffect(() => {
     const wsUrl =
-      (process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000") +
+      (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/^http/, "ws") +
       `/ws/dashboard/${process.env.NEXT_PUBLIC_CLINIC_ID ?? "default"}`;
     const ws = new WebSocket(wsUrl);
 
@@ -338,7 +338,6 @@ export default function DoctorDashboardPage({
               area_name: areaName,
               patients_waiting: patientsWaiting,
             }),
-            credentials: "include",
           }).catch(console.error);
           setHasTriggeredOvertime((prev) => ({ ...prev, [currentPatient.visit_id]: true }));
         }
@@ -349,7 +348,6 @@ export default function DoctorDashboardPage({
   const handleLogout = async () => {
     await fetch(`${API_URL}/api/v1/doctors/logout`, {
       method: "POST",
-      credentials: "include",
     });
     localStorage.clear();
     router.push("/doctor/login");

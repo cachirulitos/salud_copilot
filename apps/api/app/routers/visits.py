@@ -324,7 +324,8 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
             visit_id=visit.id,
             clinical_area_id=area.id,
             step_order=step_order,
-            status=VisitStepStatus.PENDING,
+            status=VisitStepStatus.IN_PROGRESS if step_order == 1 else VisitStepStatus.PENDING,
+            started_at=datetime.now(timezone.utc) if step_order == 1 else None,
             rule_applied=None,
             estimated_wait_minutes=int(estimated_mins),
         ))
@@ -619,7 +620,9 @@ async def advance_step(
         next_step={
             "order": next_step_response.order,
             "area_name": next_step_response.area_name,
+            "area_id": str(next_step_response.area_id),
             "estimated_wait_minutes": next_step.estimated_wait_minutes,
+            "status": "in_progress",
         } if next_step_response else None,
     )
 
@@ -729,8 +732,8 @@ async def _complete_current_step(step: VisitStep) -> int:
     return step.actual_wait_minutes
 
 async def _start_next_step(next_step: VisitStep, current_area_id: uuid.UUID, visit_id: uuid.UUID) -> None:
-    next_step.status = VisitStepStatus.PENDING
-    # We do NOT set started_at here because they are not being attended yet, just queuing.
+    next_step.status = VisitStepStatus.IN_PROGRESS
+    next_step.started_at = datetime.now(timezone.utc)
     timestamp = datetime.now(timezone.utc).timestamp()
     await redis_client.zrem(f"queue:{current_area_id}", str(visit_id))
     await redis_client.zadd(f"queue:{next_step.clinical_area_id}", {str(visit_id): timestamp})

@@ -71,7 +71,7 @@ export function ActiveVisitsTable({ visits }: ActiveVisitsTableProps) {
     
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/visits/${visit_id}/advance-step`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"}/api/v1/visits/${visit_id}/advance-step`,
         {
           method: "POST",
           headers: {

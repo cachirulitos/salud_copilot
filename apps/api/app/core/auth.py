@@ -9,7 +9,7 @@ from typing import Optional
 
 from jose import JWTError, jwt
 import bcrypt
-from fastapi import Cookie, HTTPException, status
+from fastapi import Cookie, Header, HTTPException, status
 
 from app.core.config import settings
 
@@ -49,20 +49,19 @@ def decode_access_token(token: str) -> Optional[str]:
 # ── FastAPI dependency ────────────────────────────────────────────────────────
 
 
-def get_current_doctor_id(doctor_token: Optional[str] = Cookie(default=None)) -> str:
-    """
-    FastAPI dependency that reads the JWT from the `doctor_token` HttpOnly cookie
-    and returns the doctor_id string.  Raises 401 if absent or invalid.
-    """
-    if doctor_token is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
-    doctor_id = decode_access_token(doctor_token)
+def get_current_doctor_id(
+    authorization: Optional[str] = Header(default=None),
+    doctor_token: Optional[str] = Cookie(default=None),
+) -> str:
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+    elif doctor_token:
+        token = doctor_token
+
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    doctor_id = decode_access_token(token)
     if doctor_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
     return doctor_id

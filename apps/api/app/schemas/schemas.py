@@ -268,6 +268,7 @@ class DoctorLoginResponse(BaseModel):
     full_name: str
     clinical_area_id: uuid.UUID
     clinical_area_name: str
+    token: str = ""
 
 
 class DoctorPatientResponse(BaseModel):

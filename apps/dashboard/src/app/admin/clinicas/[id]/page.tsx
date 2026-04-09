@@ -324,6 +324,9 @@ export default function ClinicDetailPage() {
                 <p className="text-xs text-content-secondary">
                   {area.study_type} · cap. {area.simultaneous_capacity}
                 </p>
+                <p className="text-xs text-content-secondary font-mono mt-1 select-all">
+                  {area.id}
+                </p>
                 {area.navigation_instructions && (
                   <p className="text-xs text-content-secondary mt-1 italic">
                     {area.navigation_instructions}

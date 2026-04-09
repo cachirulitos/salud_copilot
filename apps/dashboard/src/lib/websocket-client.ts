@@ -43,8 +43,9 @@ export class DashboardWebSocketClient {
       this.ws.close();
     }
 
-    // Default to localhost for demo, in prod this would be your API URL
-    const wsUrl = `ws://localhost:8000/ws/dashboard/${this.clinicId}`;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+    const wsBase = apiBase.replace(/^http/, "ws");
+    const wsUrl = `${wsBase}/ws/dashboard/${this.clinicId}`;
     console.log(`[WebSocket] Connecting to ${wsUrl}...`);
 
     try {

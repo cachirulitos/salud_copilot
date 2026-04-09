@@ -62,10 +62,11 @@ async def broadcast_checkin_created(
                 "patient_name": patient_name,
                 "ticket_number": ticket_number,
                 "current_area": first_step.area_name if first_step else "—",
+                "current_area_id": str(first_step.area_id) if first_step else "",
                 "step_order": 1,
                 "total_steps": len(sequence_response),
                 "waiting_since_minutes": 0,
-                "visit_status": "pending",
+                "visit_status": "in_progress",
                 "sequence": [
                     {
                         "order": s.order,
