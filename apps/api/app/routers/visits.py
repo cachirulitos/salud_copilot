@@ -12,12 +12,12 @@ from pathlib import Path
 import redis.asyncio as redis
 from fastapi import APIRouter, Depends, status, BackgroundTasks
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import select, func as sql_func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_db
-from app.routers.dashboard_ws import broadcast_checkin_created, broadcast_visit_step_updated
+from app.core.database import get_db, AsyncSessionLocal
+from app.routers.dashboard_ws import broadcast_checkin_created, broadcast_visit_step_updated, broadcast_patient_arriving, broadcast_wait_updated
 from app.services.notification_service import trigger_bot_notification
 from app.models.models import (
     Clinic,
@@ -29,6 +29,7 @@ from app.models.models import (
     VisitStep,
     VisitStepStatus,
     WaitTimeEstimate,
+    WaitTimeSnapshot,
 )
 from app.schemas.schemas import (
     AdvanceStepResponse,
@@ -488,6 +489,13 @@ async def advance_step(
     actual_wait_minutes = await _complete_current_step(current_step)
     current_area = await _load_area_by_id(current_step.clinical_area_id, db)
 
+    db.add(WaitTimeSnapshot(
+        clinic_id=visit.clinic_id,
+        area_id=current_area.id,
+        area_name=current_area.name,
+        actual_minutes=actual_wait_minutes,
+    ))
+
     db.add(PatientEvent(
         visit_id=visit.id,
         event_type="step_completed",
@@ -524,10 +532,47 @@ async def advance_step(
                 "position_in_queue": position if position is not None else 0,
             },
         )
+        # Find the area after next_step (so the destination doctor can also see it)
+        after_next_step_result = await db.execute(
+            select(VisitStep)
+            .where(
+                VisitStep.visit_id == visit_id,
+                VisitStep.step_order > next_step.step_order,
+                VisitStep.status == VisitStepStatus.PENDING,
+            )
+            .order_by(VisitStep.step_order)
+            .limit(1)
+        )
+        after_next_step = after_next_step_result.scalar_one_or_none()
+        after_next_area_name: str | None = None
+        if after_next_step:
+            after_next_area = await _load_area_by_id(after_next_step.clinical_area_id, db)
+            after_next_area_name = after_next_area.name
+        patient_result = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
+        patient = patient_result.scalar_one_or_none()
+        patient_name_str = patient.full_name if patient else "Paciente"
+        background_tasks.add_task(
+            broadcast_patient_arriving,
+            clinic_id=str(visit.clinic_id),
+            visit_id=visit.id,
+            patient_name=patient_name_str,
+            from_area=current_area.name,
+            to_area=next_area.name,
+            next_area_after=after_next_area_name,
+            estimated_wait_minutes=next_step.estimated_wait_minutes or PLACEHOLDER_WAIT_MINUTES,
+        )
     else:
         await _finish_visit(visit, current_step.clinical_area_id, db)
 
     await db.flush()
+
+    # Re-run ML for the completed area so wait estimates are fresh
+    background_tasks.add_task(
+        _recompute_and_broadcast,
+        str(current_area.id),
+        str(current_area.clinic_id),
+        current_area.name,
+    )
 
     broadcast_area_name = next_step_response.area_name if next_step_response else current_area.name
     background_tasks.add_task(
@@ -592,6 +637,39 @@ async def reorder_sequence(
 
 
 # ── Helper Functions ────────────────────────────────────────────────────────
+
+
+async def _recompute_and_broadcast(area_id: str, clinic_id: str, area_name: str) -> None:
+    """Re-run ML prediction for an area after queue changes and broadcast via WS."""
+    try:
+        from app.routers.doctors import _predict_consultation_minutes
+
+        area_uuid = uuid.UUID(area_id)
+        async with AsyncSessionLocal() as db:
+            q = await db.execute(
+                select(sql_func.count(VisitStep.id)).where(
+                    VisitStep.clinical_area_id == area_uuid,
+                    VisitStep.status.in_([VisitStepStatus.PENDING, VisitStepStatus.IN_PROGRESS]),
+                )
+            )
+            queue_length = q.scalar_one()
+
+            area_result = await db.execute(
+                select(ClinicalArea).where(ClinicalArea.id == area_uuid)
+            )
+            area = area_result.scalar_one_or_none()
+            if area is None:
+                return
+
+        class _FakeVisit:
+            has_appointment = False
+
+        new_wait = _predict_consultation_minutes(area, _FakeVisit(), queue_length)
+        await broadcast_wait_updated(clinic_id, area_id, area_name, new_wait)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("_recompute_and_broadcast error")
+
 
 async def _enqueue_first_area(visit_id: uuid.UUID, area_id: str) -> None:
     timestamp = datetime.now(timezone.utc).timestamp()

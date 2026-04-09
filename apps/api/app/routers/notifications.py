@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core.auth import get_current_doctor_id
 from app.models.models import ClinicalArea, Doctor, DoctorAlert, AlertType
 from app.schemas.schemas import DoctorAlertResponse, StudyChangeNotification
-from app.routers.dashboard_ws import broadcast_to_clinic
+from app.routers.dashboard_ws import broadcast_to_clinic, broadcast_alert_resolved
 
 router = APIRouter()
 
@@ -31,10 +31,13 @@ router = APIRouter()
 )
 async def list_alerts(
     clinic_id: uuid.UUID = Query(..., description="UUID of the clinic"),
+    area_id: Optional[uuid.UUID] = Query(None, description="Filter alerts to a specific area"),
     resolved: Optional[bool] = Query(None, description="Filter by resolved status"),
     db: AsyncSession = Depends(get_db),
 ):
     q = select(DoctorAlert).where(DoctorAlert.clinic_id == clinic_id)
+    if area_id is not None:
+        q = q.where(DoctorAlert.area_id == area_id)
     if resolved is False:
         q = q.where(DoctorAlert.resolved_at.is_(None))
     elif resolved is True:
@@ -75,6 +78,9 @@ async def resolve_alert(
 
     alert.resolved_at = datetime.now(timezone.utc)
     await db.flush()
+    await db.commit()
+
+    await broadcast_alert_resolved(str(alert.clinic_id), str(alert.id))
 
     return DoctorAlertResponse(
         id=alert.id,

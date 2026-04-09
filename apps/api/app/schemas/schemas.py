@@ -177,6 +177,26 @@ class VisitContextResponse(BaseModel):
 
 # ── General schemas ───────────────────────────────────────────────────────────
 
+class StepDetail(BaseModel):
+    order: int
+    area_name: str
+    status: str  # pending | in_progress | completed
+    estimated_wait_minutes: Optional[int] = None
+    actual_wait_minutes: Optional[int] = None
+
+
+class CompletedPatientEntry(BaseModel):
+    visit_id: uuid.UUID
+    patient_name: str
+    completed_at: datetime
+    total_steps: int
+
+
+class CompletedTodayResponse(BaseModel):
+    count: int
+    patients: list[CompletedPatientEntry]
+
+
 class AdvanceStepStepResponse(BaseModel):
     order: int
     area_name: str
@@ -253,6 +273,9 @@ class DoctorPatientResponse(BaseModel):
     estimated_wait_minutes: Optional[int]
     expected_consultation_minutes: Optional[int]
     elapsed_minutes: Optional[int]
+    coming_from_area: Optional[str] = None
+    next_area_after: Optional[str] = None
+    steps: list[StepDetail] = []
 
 
 # ── Alert schemas ─────────────────────────────────────────────────────────────

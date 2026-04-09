@@ -5,7 +5,7 @@ Doctor endpoints:
   GET  /api/v1/doctors/me/patients   — list active visits in the doctor's area
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
@@ -31,6 +31,9 @@ from app.schemas.schemas import (
     DoctorLoginRequest,
     DoctorLoginResponse,
     DoctorPatientResponse,
+    StepDetail,
+    CompletedPatientEntry,
+    CompletedTodayResponse,
 )
 
 BASE_WAIT_TIMES = {
@@ -199,6 +202,13 @@ async def get_my_patients(
     area = area_result.scalar_one()
     queue_length = len(steps)
 
+    all_areas_result = await db.execute(
+        select(ClinicalArea).where(ClinicalArea.clinic_id == area.clinic_id)
+    )
+    area_name_map: dict[uuid.UUID, str] = {
+        a.id: a.name for a in all_areas_result.scalars().all()
+    }
+
     for step in steps:
         visit_result = await db.execute(select(Visit).where(Visit.id == step.visit_id))
         visit = visit_result.scalar_one_or_none()
@@ -219,6 +229,36 @@ async def get_my_patients(
 
         expected_consultation_minutes = _predict_consultation_minutes(area, visit, queue_length)
 
+        # Find previous completed step (coming from) and next pending step (going to)
+        all_steps_result = await db.execute(
+            select(VisitStep)
+            .where(VisitStep.visit_id == step.visit_id)
+            .order_by(VisitStep.step_order)
+        )
+        all_steps = list(all_steps_result.scalars().all())
+
+        coming_from_area: Optional[str] = None
+        next_area_after: Optional[str] = None
+
+        prev_step = next((s for s in reversed(all_steps) if s.step_order < step.step_order and s.status == VisitStepStatus.COMPLETED), None)
+        if prev_step:
+            coming_from_area = area_name_map.get(prev_step.clinical_area_id)
+
+        next_step_obj = next((s for s in all_steps if s.step_order > step.step_order and s.status == VisitStepStatus.PENDING), None)
+        if next_step_obj:
+            next_area_after = area_name_map.get(next_step_obj.clinical_area_id)
+
+        step_details = [
+            StepDetail(
+                order=s.step_order,
+                area_name=area_name_map.get(s.clinical_area_id, "Desconocida"),
+                status=s.status.value,
+                estimated_wait_minutes=s.estimated_wait_minutes,
+                actual_wait_minutes=s.actual_wait_minutes,
+            )
+            for s in all_steps
+        ]
+
         patients.append(
             DoctorPatientResponse(
                 visit_id=step.visit_id,
@@ -229,6 +269,9 @@ async def get_my_patients(
                 estimated_wait_minutes=step.estimated_wait_minutes,
                 expected_consultation_minutes=expected_consultation_minutes,
                 elapsed_minutes=elapsed,
+                coming_from_area=coming_from_area,
+                next_area_after=next_area_after,
+                steps=step_details,
             )
         )
 
@@ -236,3 +279,52 @@ async def get_my_patients(
     patients.sort(key=lambda p: (0 if p.step_status == VisitStepStatus.IN_PROGRESS.value else 1))
 
     return patients
+
+
+@router.get(
+    "/me/completed-today",
+    response_model=CompletedTodayResponse,
+    summary="Get patients whose step in this doctor's area was completed today",
+)
+async def get_completed_today(
+    doctor_id: str = Depends(get_current_doctor_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Doctor).where(Doctor.id == uuid.UUID(doctor_id)))
+    doctor = result.scalar_one_or_none()
+    if doctor is None:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
+
+    steps_result = await db.execute(
+        select(VisitStep)
+        .join(Visit, Visit.id == VisitStep.visit_id)
+        .where(
+            VisitStep.clinical_area_id == doctor.clinical_area_id,
+            VisitStep.status == VisitStepStatus.COMPLETED,
+            VisitStep.completed_at >= today_start,
+        )
+        .order_by(VisitStep.completed_at.desc())
+    )
+    completed_steps = list(steps_result.scalars().all())
+
+    entries: list[CompletedPatientEntry] = []
+    for s in completed_steps:
+        visit_res = await db.execute(select(Visit).where(Visit.id == s.visit_id))
+        visit = visit_res.scalar_one_or_none()
+        if not visit:
+            continue
+        patient_res = await db.execute(select(Patient).where(Patient.id == visit.patient_id))
+        patient = patient_res.scalar_one_or_none()
+        total_res = await db.execute(
+            select(func.count(VisitStep.id)).where(VisitStep.visit_id == s.visit_id)
+        )
+        entries.append(CompletedPatientEntry(
+            visit_id=s.visit_id,
+            patient_name=patient.full_name if patient else "Desconocido",
+            completed_at=s.completed_at,
+            total_steps=total_res.scalar_one(),
+        ))
+
+    return CompletedTodayResponse(count=len(entries), patients=entries)
