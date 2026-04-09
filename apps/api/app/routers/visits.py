@@ -548,6 +548,7 @@ async def advance_step(
         next_step_response = AdvanceStepStepResponse(
             order=next_step.step_order,
             area_name=next_area.name,
+            area_id=next_area.id,
             status="pending",
         )
         position = await redis_client.zrank(

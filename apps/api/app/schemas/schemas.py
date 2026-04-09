@@ -207,6 +207,7 @@ class CompletedTodayResponse(BaseModel):
 class AdvanceStepStepResponse(BaseModel):
     order: int
     area_name: str
+    area_id: Optional[uuid.UUID] = None
     status: str
     actual_wait_minutes: Optional[int] = None
 
