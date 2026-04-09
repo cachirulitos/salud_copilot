@@ -25,9 +25,9 @@ class Base(DeclarativeBase):
 
 
 async def init_db():
-    """Initializes database connections by verifying connectivity."""
+    """Creates all tables (idempotent) and verifies connectivity."""
     async with engine.begin() as connection:
-        await connection.run_sync(lambda connection: None)
+        await connection.run_sync(Base.metadata.create_all)
 
 
 async def get_db():

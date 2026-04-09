@@ -11,7 +11,7 @@ function DashboardShell({ children }: { children: ReactNode }) {
   return (
     <>
       <Sidebar
-        clinicName="Clínica Demo"
+        clinicName="Salud Digna Reforma"
         isConnected={isConnected}
         alertCount={alertCount}
       />
