@@ -89,6 +89,7 @@ async def _get_overview_data(clinic_id: uuid.UUID, db: AsyncSession) -> dict[str
             visit_stats.append({
                 "visit_id": str(visit.id),
                 "patient_name": visit.patient.full_name,
+                "ticket_number": visit.ticket_number or "",
                 "current_area": area_name,
                 "step_order": current_step.step_order,
                 "total_steps": len(visit.visit_steps),

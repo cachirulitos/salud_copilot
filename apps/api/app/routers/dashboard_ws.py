@@ -46,9 +46,10 @@ async def broadcast_checkin_created(
     clinic_id: str,
     visit_id: uuid.UUID,
     patient_id: uuid.UUID,
-    patient_name: str,          # ← agregar este parámetro
+    patient_name: str,
     sequence_response: list,
     total_estimated_minutes: int,
+    ticket_number: str = "",
 ) -> None:
     first_step = sequence_response[0] if sequence_response else None
     await broadcast_to_clinic(
@@ -59,6 +60,7 @@ async def broadcast_checkin_created(
                 "visit_id": str(visit_id),
                 "patient_id": str(patient_id),
                 "patient_name": patient_name,
+                "ticket_number": ticket_number,
                 "current_area": first_step.area_name if first_step else "—",
                 "step_order": 1,
                 "total_steps": len(sequence_response),

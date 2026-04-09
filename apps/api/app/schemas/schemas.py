@@ -26,11 +26,15 @@ class CheckInRequest(BaseModel):
     phone_number must be in E.164 format: +521234567890
     """
 
-    phone_number: str = Field(
-        ...,
-        description="Patient phone number in E.164 format",
+    phone_number: Optional[str] = Field(
+        None,
+        description="Patient phone number in E.164 format. Omit for no-phone patients.",
         examples=["+521234567890"],
         pattern=r"^\+[1-9]\d{7,14}$",
+    )
+    full_name: Optional[str] = Field(
+        None,
+        description="Patient full name as given at reception",
     )
     clinic_id: uuid.UUID = Field(..., description="UUID of the clinic")
     study_ids: list[uuid.UUID] = Field(
@@ -129,6 +133,7 @@ class CheckInResponse(BaseModel):
 
     visit_id: uuid.UUID = Field(..., description="UUID of the newly created visit")
     patient_id: uuid.UUID = Field(..., description="UUID of the patient")
+    ticket_number: str = Field(..., description="Daily ticket number e.g. A-001")
     sequence: list[SequenceStepResponse] = Field(
         ..., description="Ordered sequence of studies calculated by the rules engine"
     )
@@ -165,6 +170,8 @@ class VisitContextResponse(BaseModel):
 
     visit_id: uuid.UUID = Field(..., description="UUID of the visit")
     patient_name: str = Field(..., description="Full name of the patient")
+    patient_phone: Optional[str] = Field(None, description="Patient phone number")
+    ticket_number: Optional[str] = Field(None, description="Daily ticket number")
     current_step: Optional[VisitContextStepResponse] = Field(
         None, description="The step the patient is currently waiting for or doing"
     )

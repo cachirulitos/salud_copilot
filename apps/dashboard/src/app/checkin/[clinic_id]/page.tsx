@@ -33,6 +33,7 @@ interface SequenceStep {
 
 interface CheckinResult {
   visit_id: string;
+  ticket_number: string;
   sequence: SequenceStep[];
   total_estimated_minutes: number;
 }
@@ -45,7 +46,9 @@ export default function CheckinPage() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [areasLoading, setAreasLoading] = useState(true);
 
+  const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [noPhone, setNoPhone] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState<Area[]>([]);
   const [dropdownValue, setDropdownValue] = useState("");
   const [hasAppointment, setHasAppointment] = useState(false);
@@ -97,14 +100,16 @@ export default function CheckinPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!phone.trim() || selectedAreas.length === 0) return;
+    if ((!noPhone && !phone.trim()) || selectedAreas.length === 0) return;
 
     setSubmitting(true);
     setError(null);
 
-    const normalizedPhone = phone.startsWith("+")
-      ? phone.replace(/\s/g, "")
-      : `+52${phone.replace(/\D/g, "")}`;
+    const normalizedPhone = noPhone
+      ? null
+      : phone.startsWith("+")
+        ? phone.replace(/\s/g, "")
+        : `+52${phone.replace(/\D/g, "")}`;
 
     try {
       const areaIds = selectedAreas.map((a) => a.id);
@@ -113,6 +118,7 @@ export default function CheckinPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           phone_number: normalizedPhone,
+          full_name: fullName.trim() || null,
           clinic_id,
           study_ids: areaIds,
           proposed_sequence: areaIds,
@@ -154,8 +160,14 @@ export default function CheckinPage() {
             <h1 className="text-2xl font-bold text-gray-900">
               ¡Registro exitoso!
             </h1>
-            <p className="text-sm text-gray-500">
-              Sigue el orden indicado. Recibirás actualizaciones por WhatsApp.
+            <div className="mt-3 bg-brand-green/10 border-2 border-brand-green rounded-2xl py-4 px-6">
+              <p className="text-xs text-brand-green font-semibold uppercase tracking-wider">Tu turno</p>
+              <p className="text-5xl font-black text-brand-green mt-1">{result.ticket_number}</p>
+            </div>
+            <p className="text-sm text-gray-500 mt-2">
+              {noPhone
+                ? "Sigue tu turno en la pantalla de la sala de espera."
+                : "Sigue el orden indicado. Recibirás actualizaciones por WhatsApp."}
             </p>
           </div>
 
@@ -226,7 +238,37 @@ export default function CheckinPage() {
         <form
           onSubmit={handleSubmit}
           className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-5">
+          {/* Name */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Nombre completo
+            </label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Ej. María García López"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green"
+            />
+          </div>
+
+          {/* No-phone toggle */}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div className="relative">
+              <input
+                type="checkbox"
+                checked={noPhone}
+                onChange={(e) => { setNoPhone(e.target.checked); if (e.target.checked) setPhone(""); }}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-6 bg-gray-200 peer-checked:bg-brand-green rounded-full transition-colors" />
+              <div className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+            </div>
+            <span className="text-sm font-medium text-gray-700">Sin teléfono</span>
+          </label>
+
           {/* Phone */}
+          {!noPhone && (
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               <span className="flex items-center gap-1.5 mb-1">
@@ -243,9 +285,16 @@ export default function CheckinPage() {
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base text-gray-900 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green"
             />
             <p className="text-xs text-gray-400 mt-1">
-              Recibirás tu turno y actualizaciones aquí
+              Recibirás tu turno y actualizaciones por WhatsApp
             </p>
           </div>
+          )}
+
+          {noPhone && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              El paciente podrá seguir su turno en la pantalla de la sala de espera.
+            </p>
+          )}
 
           {/* Study / area */}
           <div>

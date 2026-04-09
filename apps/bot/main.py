@@ -276,7 +276,15 @@ async def _send_deferred_welcome(phone_number: str, session: dict) -> None:
 
 
 async def _handle_checkin_message(phone_number: str, message_text: str) -> None:
-    """Parse CHECKIN_{clinic_id}_{area_id} and register the visit via the API."""
+    """Parse CHECKIN_{clinic_id}_{area_id} and register the visit via the API.
+
+    DEPRECATED: QR self-check-in is replaced by reception-first flow.
+    This handler is kept for backward compatibility but will be removed.
+    """
+    logger.warning(
+        "DEPRECATED QR check-in used by %s — patients should register at reception",
+        phone_number,
+    )
     parts = message_text.strip().split("_", 2)
     # Expected: ["CHECKIN", clinic_id, area_id]
     if len(parts) != 3:
@@ -369,6 +377,9 @@ async def _handle_welcome(visit_id: str, payload: dict) -> None:
         return
 
     phone_number = context.get("patient_phone", "")
+    if phone_number.startswith("+0000000"):
+        logger.info("Skipping WhatsApp for no-phone patient: %s", visit_id)
+        return
     patient_name = context.get("patient_name", "Paciente")
     sequence = payload.get("sequence", [])
     total_minutes = payload.get("total_estimated_minutes", 0)
@@ -428,6 +439,9 @@ async def _handle_turn_ready(visit_id: str, payload: dict) -> None:
         return
 
     phone_number = context.get("patient_phone", "")
+    if phone_number.startswith("+0000000"):
+        logger.info("Skipping WhatsApp for no-phone patient: %s", visit_id)
+        return
     area_name = payload.get("area_name", "")
     estimated_wait = payload.get("estimated_wait_minutes", WAIT_TIME_DELTA_THRESHOLD_MINUTES)
     position = payload.get("position_in_queue", 0)

@@ -135,6 +135,7 @@ class Visit(Base):
     is_urgent: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ticket_number: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, index=True)
 
     patient: Mapped["Patient"] = relationship("Patient", back_populates="visits")
     clinic: Mapped["Clinic"] = relationship("Clinic", back_populates="visits")

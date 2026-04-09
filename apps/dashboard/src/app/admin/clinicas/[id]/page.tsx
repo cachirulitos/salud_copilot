@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, Plus, Loader2, AlertCircle } from "lucide-react";
-import { QRCard } from "@/components/admin/QRCard";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -332,12 +331,6 @@ export default function ClinicDetailPage() {
                 )}
               </div>
 
-              {/* QR card */}
-              <QRCard
-                areaId={area.id}
-                areaName={area.name}
-                clinicId={clinicId}
-              />
             </div>
           ))}
         </div>

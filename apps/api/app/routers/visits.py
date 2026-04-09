@@ -31,6 +31,8 @@ from app.models.models import (
     WaitTimeEstimate,
     WaitTimeSnapshot,
 )
+import random
+from datetime import date
 from app.schemas.schemas import (
     AdvanceStepResponse,
     AdvanceStepStepResponse,
@@ -95,29 +97,52 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
     9. Return 201 with CheckInResponse.
     """
 
-    # ── Step 1: find or create patient ───────────────────────────────────
+    # ── Step 1: resolve phone (sentinel for no-phone patients) ────────────
+    phone = request.phone_number
+    skip_whatsapp = False
+    if not phone:
+        phone = f"+0000000{random.randint(1000, 9999)}"
+        skip_whatsapp = True
+
+    patient_name = request.full_name or (DEFAULT_PATIENT_NAME_PREFIX + phone[-4:])
+
+    # ── Step 1b: find or create patient ──────────────────────────────────
     result = await db.execute(
-        select(Patient).where(Patient.phone_number == request.phone_number)
+        select(Patient).where(Patient.phone_number == phone)
     )
     patient = result.scalar_one_or_none()
     if patient is None:
         patient = Patient(
-            phone_number=request.phone_number,
-            full_name=DEFAULT_PATIENT_NAME_PREFIX + request.phone_number[-4:],
+            phone_number=phone,
+            full_name=patient_name,
         )
         db.add(patient)
-        await db.flush()  # assigns patient.id before FK use
+        await db.flush()
+    elif request.full_name:
+        patient.full_name = request.full_name
 
-    # ── Step 2: create visit ──────────────────────────────────────────────
+    # ── Step 2: generate ticket number ───────────────────────────────────
+    today_start = datetime.combine(date.today(), datetime.min.time()).replace(tzinfo=timezone.utc)
+    count_result = await db.execute(
+        select(sql_func.count(Visit.id)).where(
+            Visit.clinic_id == request.clinic_id,
+            Visit.created_at >= today_start,
+        )
+    )
+    ticket_seq = (count_result.scalar() or 0) + 1
+    ticket_number = f"A-{ticket_seq:03d}"
+
+    # ── Step 2b: create visit ────────────────────────────────────────────
     visit = Visit(
         patient_id=patient.id,
         clinic_id=request.clinic_id,
         status=VisitStatus.PENDING,
         has_appointment=request.has_appointment,
         is_urgent=request.is_urgent,
+        ticket_number=ticket_number,
     )
     db.add(visit)
-    await db.flush()  # assigns visit.id before FK use
+    await db.flush()
 
     # ── Step 3: resolve study_ids → ClinicalArea rows ────────────────────
     areas: list[ClinicalArea] = []
@@ -330,6 +355,7 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
     response = CheckInResponse(
         visit_id=visit.id,
         patient_id=patient.id,
+        ticket_number=ticket_number,
         sequence=sequence_response,
         total_estimated_minutes=sequence_result.estimated_time_minutes,
     )
@@ -341,13 +367,16 @@ async def check_in(request: CheckInRequest, background_tasks: BackgroundTasks, d
         sequence_response=sequence_response,
         total_estimated_minutes=sequence_result.estimated_time_minutes,
         patient_name=patient.full_name,
+        ticket_number=ticket_number,
     )
-    background_tasks.add_task(
-        trigger_bot_notification,
-        visit_id=str(visit.id),
-        notification_type="welcome",
-        payload=response.model_dump(mode="json"),
-    )
+    if not skip_whatsapp:
+        background_tasks.add_task(
+            trigger_bot_notification,
+            visit_id=str(visit.id),
+            notification_type="welcome",
+            payload=response.model_dump(mode="json"),
+            clinic_id=str(request.clinic_id),
+        )
     return response
 
 
@@ -456,6 +485,7 @@ async def get_visit_context(
         visit_id=visit.id,
         patient_name=patient.full_name,
         patient_phone=patient.phone_number,
+        ticket_number=visit.ticket_number,
         current_step=current_step_response,
         remaining_steps=remaining_steps_response,
         total_estimated_minutes=total_estimated_minutes,
@@ -531,6 +561,7 @@ async def advance_step(
                 "estimated_wait_minutes": next_step.estimated_wait_minutes or PLACEHOLDER_WAIT_MINUTES,
                 "position_in_queue": position if position is not None else 0,
             },
+            clinic_id=str(visit.clinic_id),
         )
         # Find the area after next_step (so the destination doctor can also see it)
         after_next_step_result = await db.execute(
